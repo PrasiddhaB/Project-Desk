@@ -208,3 +208,102 @@ class CustomTokenRefreshView(TokenRefreshView):
                 },
                 status=status.HTTP_401_UNAUTHORIZED
             )
+
+
+class DashboardView(APIView):
+    """
+    Dashboard stats API.
+    
+    GET /api/auth/dashboard/
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        from apps.tasks.models import Task
+        from apps.notes.models import Note
+        from django.utils import timezone
+        
+        user = request.user
+        today = timezone.now().date()
+        
+        if user.role == 'admin':
+            # Admin sees all stats
+            tasks = Task.objects.all()
+            notes = Note.objects.all()
+            
+            # Get all users count
+            from apps.accounts.models import User
+            total_employees = User.objects.filter(role='employee', is_active=True).count()
+        else:
+            # Employee sees only their stats
+            tasks = Task.objects.filter(assigned_to=user)
+            notes = Note.objects.filter(user=user)
+            total_employees = 0
+        
+        stats = {
+            'tasks': {
+                'total': tasks.count(),
+                'pending': tasks.filter(status='pending').count(),
+                'in_progress': tasks.filter(status='in_progress').count(),
+                'completed': tasks.filter(status='completed').count(),
+                'overdue': tasks.filter(due_date__lt=today).exclude(status='completed').count(),
+                'due_today': tasks.filter(due_date=today).count(),
+            },
+            'notes': {
+                'total': notes.count(),
+                'private': notes.filter(is_private=True).count(),
+                'shared': notes.filter(is_private=False).count(),
+            },
+            'total_employees': total_employees,
+        }
+        
+        # Add recent tasks
+        recent_tasks = tasks.order_by('-created_at')[:5]
+        stats['recent_tasks'] = [
+            {
+                'id': t.id,
+                'title': t.title,
+                'status': t.status,
+                'priority': t.priority,
+                'due_date': str(t.due_date) if t.due_date else None,
+            }
+            for t in recent_tasks
+        ]
+        
+        return Response({
+            'success': True,
+            'data': stats
+        })
+
+
+class ProfileUpdateView(APIView):
+    """
+    Update user profile.
+    
+    PUT /api/auth/profile/
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def put(self, request):
+        user = request.user
+        data = request.data
+        
+        # Update allowed fields
+        if 'full_name' in data:
+            user.full_name = data['full_name']
+        if 'email' in data:
+            user.email = data['email']
+        if 'phone' in data:
+            user.phone = data['phone']
+        
+        user.save()
+        
+        serializer = UserResponseSerializer(user)
+        return Response({
+            'success': True,
+            'message': 'Profile updated',
+            'data': serializer.data
+        })
+    
+    def patch(self, request):
+        return self.put(request)

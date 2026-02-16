@@ -1,39 +1,78 @@
 /**
- * Task Detail Page - Admin view
+ * Task Detail Page - View task details
+ * Dynamic - connects to backend API
  */
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { AppLayout } from '@/components/layout';
 import { Card, Button, Badge, Avatar } from '@/components/ui';
 import { StatusBadge, PriorityBadge } from '@/components/tasks';
-import { getTaskById } from '@/mock/tasks';
+import { useAuth } from '@/app/providers/AuthProvider';
+import { taskApi } from '@/services/tasks';
+import { Task, TaskStatus, STATUS_OPTIONS } from '@/types';
 
 export const TaskDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const task = getTaskById(Number(id));
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
 
-  if (!task) {
-    return (
-      <AppLayout>
-        <div className="p-6">
-          <Card className="border-0 shadow-sm">
-            <div className="text-center py-12">
-              <svg className="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <h3 className="text-lg font-medium text-gray-800 mb-2">Task Not Found</h3>
-              <p className="text-gray-500 mb-4">The task you're looking for doesn't exist.</p>
-              <Button onClick={() => navigate('/tasks')}>Back to Tasks</Button>
-            </div>
-          </Card>
-        </div>
-      </AppLayout>
-    );
-  }
+  // State
+  const [task, setTask] = useState<Task | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [updating, setUpdating] = useState(false);
 
-  const formatDate = (dateString: string) => {
+  // Fetch task
+  const fetchTask = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await taskApi.getTask(Number(id));
+      setTask(data);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to load task');
+      console.error('Error fetching task:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchTask();
+  }, [id]);
+
+  // Update status
+  const handleStatusUpdate = async (newStatus: TaskStatus) => {
+    if (!task) return;
+    
+    try {
+      setUpdating(true);
+      await taskApi.updateTaskStatus(task.id, newStatus);
+      setTask(prev => prev ? { ...prev, status: newStatus } : null);
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Failed to update status');
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  // Delete task
+  const handleDelete = async () => {
+    if (!task) return;
+    if (!window.confirm(`Are you sure you want to delete "${task.title}"?`)) return;
+
+    try {
+      await taskApi.deleteTask(task.id);
+      navigate('/tasks?success=Task deleted');
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Failed to delete task');
+    }
+  };
+
+  const formatDate = (dateString: string | null) => {
+    if (!dateString) return '-';
     return new Date(dateString).toLocaleDateString('en-US', {
       weekday: 'long',
       year: 'numeric',
@@ -42,21 +81,49 @@ export const TaskDetailPage: React.FC = () => {
     });
   };
 
-  const isOverdue = (dateString: string | null) => {
-    if (!dateString) return false;
-    const dueDate = new Date(dateString);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return dueDate < today && task.status !== 'completed';
+  const formatDateTime = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
   };
 
-  const handleDelete = () => {
-    if (window.confirm('Are you sure you want to delete this task?')) {
-      // Mock delete
-      console.log('Delete task:', task.id);
-      navigate('/tasks?success=Task deleted successfully');
-    }
-  };
+  if (loading) {
+    return (
+      <AppLayout>
+        <div className="p-6">
+          <Card className="border-0 shadow-sm">
+            <div className="text-center py-12">
+              <div className="w-12 h-12 border-4 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+              <p className="text-gray-500">Loading task...</p>
+            </div>
+          </Card>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  if (error || !task) {
+    return (
+      <AppLayout>
+        <div className="p-6">
+          <Card className="border-0 shadow-sm">
+            <div className="text-center py-12">
+              <h3 className="text-lg font-medium text-gray-800 mb-2">
+                {error || 'Task Not Found'}
+              </h3>
+              <Button onClick={() => navigate(isAdmin ? '/tasks' : '/my-tasks')}>
+                Back to Tasks
+              </Button>
+            </div>
+          </Card>
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout>
@@ -64,40 +131,37 @@ export const TaskDetailPage: React.FC = () => {
         {/* Header */}
         <div className="mb-6">
           <nav className="text-sm text-gray-500 mb-2">
-            <Link to="/tasks" className="hover:text-primary-500">Tasks</Link>
+            <Link to={isAdmin ? '/tasks' : '/my-tasks'} className="hover:text-primary-500">
+              Tasks
+            </Link>
             <span className="mx-2">/</span>
-            <span className="text-gray-700">Task Details</span>
+            <span className="text-gray-700">{task.title}</span>
           </nav>
+          
           <div className="flex items-start justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-gray-800">{task.title}</h1>
-              <div className="flex items-center gap-3 mt-2">
+              <h1 className="text-2xl font-bold text-gray-800 mb-2">{task.title}</h1>
+              <div className="flex items-center gap-3">
                 <StatusBadge status={task.status} />
                 <PriorityBadge priority={task.priority} />
-                {isOverdue(task.due_date) && (
-                  <Badge variant="danger">Overdue</Badge>
-                )}
+                {task.is_overdue && <Badge variant="danger">Overdue</Badge>}
               </div>
             </div>
+            
             <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={() => navigate('/tasks')}>
-                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                </svg>
+              <Button variant="outline" onClick={() => navigate(isAdmin ? '/tasks' : '/my-tasks')}>
                 Back
               </Button>
-              <Button variant="outline" onClick={() => navigate(`/tasks/${task.id}/edit`)}>
-                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                </svg>
-                Edit
-              </Button>
-              <Button variant="danger" onClick={handleDelete}>
-                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-                Delete
-              </Button>
+              {isAdmin && (
+                <>
+                  <Button variant="outline" onClick={() => navigate(`/tasks/${task.id}/edit`)}>
+                    Edit
+                  </Button>
+                  <Button variant="danger" onClick={handleDelete}>
+                    Delete
+                  </Button>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -108,14 +172,37 @@ export const TaskDetailPage: React.FC = () => {
             {/* Description */}
             <Card className="border-0 shadow-sm">
               <h2 className="text-lg font-semibold text-gray-800 mb-4">Description</h2>
-              <p className="text-gray-600 leading-relaxed whitespace-pre-wrap">
-                {task.description}
+              <p className="text-gray-600 whitespace-pre-wrap">
+                {task.description || 'No description provided.'}
               </p>
             </Card>
 
-            {/* Assigned Team Members */}
+            {/* Status Update */}
             <Card className="border-0 shadow-sm">
-              <h2 className="text-lg font-semibold text-gray-800 mb-4">Assigned To</h2>
+              <h2 className="text-lg font-semibold text-gray-800 mb-4">Update Status</h2>
+              <div className="flex flex-wrap gap-2">
+                {STATUS_OPTIONS.map(option => (
+                  <button
+                    key={option.value}
+                    onClick={() => handleStatusUpdate(option.value)}
+                    disabled={updating || task.status === option.value}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                      task.status === option.value
+                        ? 'bg-primary-500 text-white'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    } disabled:opacity-50`}
+                  >
+                    {updating && task.status !== option.value ? 'Updating...' : option.label}
+                  </button>
+                ))}
+              </div>
+            </Card>
+
+            {/* Assignees */}
+            <Card className="border-0 shadow-sm">
+              <h2 className="text-lg font-semibold text-gray-800 mb-4">
+                Assignees ({task.assigned_to.length})
+              </h2>
               {task.assigned_to.length > 0 ? (
                 <div className="space-y-3">
                   {task.assigned_to.map(assignee => (
@@ -123,66 +210,47 @@ export const TaskDetailPage: React.FC = () => {
                       <Avatar name={assignee.full_name} size="md" />
                       <div>
                         <p className="font-medium text-gray-800">{assignee.full_name}</p>
-                        <p className="text-sm text-gray-500">{assignee.email}</p>
+                        <p className="text-sm text-gray-500">@{assignee.username}</p>
                       </div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <p className="text-gray-500">No team members assigned</p>
+                <p className="text-gray-500">No assignees</p>
               )}
             </Card>
           </div>
 
           {/* Sidebar */}
           <div className="space-y-6">
-            {/* Task Info */}
             <Card className="border-0 shadow-sm">
-              <h2 className="text-lg font-semibold text-gray-800 mb-4">Task Information</h2>
-              
+              <h2 className="text-lg font-semibold text-gray-800 mb-4">Task Details</h2>
               <div className="space-y-4">
-                {/* Status */}
                 <div>
-                  <label className="text-sm text-gray-500 block mb-1">Status</label>
-                  <StatusBadge status={task.status} />
+                  <p className="text-sm text-gray-500">Due Date</p>
+                  <p className={`font-medium ${task.is_overdue ? 'text-red-600' : 'text-gray-800'}`}>
+                    {formatDate(task.due_date)}
+                  </p>
                 </div>
-
-                {/* Priority */}
                 <div>
-                  <label className="text-sm text-gray-500 block mb-1">Priority</label>
+                  <p className="text-sm text-gray-500">Priority</p>
                   <PriorityBadge priority={task.priority} />
                 </div>
-
-                {/* Due Date */}
                 <div>
-                  <label className="text-sm text-gray-500 block mb-1">Due Date</label>
-                  {task.due_date ? (
-                    <div className="flex items-center gap-2">
-                      <span className={`font-medium ${isOverdue(task.due_date) ? 'text-red-600' : 'text-gray-800'}`}>
-                        {formatDate(task.due_date)}
-                      </span>
-                    </div>
-                  ) : (
-                    <span className="text-gray-500">No deadline</span>
-                  )}
+                  <p className="text-sm text-gray-500">Status</p>
+                  <StatusBadge status={task.status} />
                 </div>
-
-                {/* Created By */}
                 <div>
-                  <label className="text-sm text-gray-500 block mb-1">Created By</label>
-                  <span className="font-medium text-gray-800">{task.created_by_name}</span>
+                  <p className="text-sm text-gray-500">Created By</p>
+                  <p className="font-medium text-gray-800">{task.created_by.full_name}</p>
                 </div>
-
-                {/* Created At */}
                 <div>
-                  <label className="text-sm text-gray-500 block mb-1">Created</label>
-                  <span className="text-gray-600">{formatDate(task.created_at)}</span>
+                  <p className="text-sm text-gray-500">Created</p>
+                  <p className="text-gray-600 text-sm">{formatDateTime(task.created_at)}</p>
                 </div>
-
-                {/* Updated At */}
                 <div>
-                  <label className="text-sm text-gray-500 block mb-1">Last Updated</label>
-                  <span className="text-gray-600">{formatDate(task.updated_at)}</span>
+                  <p className="text-sm text-gray-500">Last Updated</p>
+                  <p className="text-gray-600 text-sm">{formatDateTime(task.updated_at)}</p>
                 </div>
               </div>
             </Card>

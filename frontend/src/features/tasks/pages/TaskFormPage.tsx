@@ -1,99 +1,144 @@
 /**
- * Task Form Page - Admin create/edit task
+ * Task Form Page - Create and Edit tasks
+ * Dynamic - connects to backend API
  */
 
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { AppLayout } from '@/components/layout';
 import { Card, Button, Input } from '@/components/ui';
-import { getTaskById } from '@/mock/tasks';
-import { getEmployees } from '@/mock/users';
-import { TaskFormData, TaskStatus, TaskPriority, STATUS_OPTIONS, PRIORITY_OPTIONS } from '@/types';
+import { taskApi } from '@/services/tasks';
+import client from '@/services/http/client';
+import { Task, TaskStatus, TaskPriority, STATUS_OPTIONS, PRIORITY_OPTIONS } from '@/types';
+
+interface UserOption {
+  id: number;
+  username: string;
+  full_name: string;
+}
 
 export const TaskFormPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const isEditing = Boolean(id);
-  const existingTask = isEditing ? getTaskById(Number(id)) : null;
-  const employees = getEmployees();
+  const isEditMode = Boolean(id);
 
-  const [formData, setFormData] = useState<TaskFormData>({
+  // State
+  const [loading, setLoading] = useState(isEditMode);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [users, setUsers] = useState<UserOption[]>([]);
+
+  // Form data
+  const [formData, setFormData] = useState({
     title: '',
     description: '',
-    status: 'pending',
-    priority: 'medium',
+    status: 'pending' as TaskStatus,
+    priority: 'medium' as TaskPriority,
     due_date: '',
-    assigned_to: [],
+    assigned_to_ids: [] as number[],
   });
 
-  const [errors, setErrors] = useState<Partial<Record<keyof TaskFormData, string>>>({});
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Fetch users for assignment dropdown
+  const fetchUsers = async () => {
+    try {
+      const response = await client.get('/auth/users/');
+      setUsers(response.data.data || response.data || []);
+    } catch (err) {
+      console.error('Error fetching users:', err);
+    }
+  };
+
+  // Fetch task for edit mode
+  const fetchTask = async () => {
+    try {
+      setLoading(true);
+      const task = await taskApi.getTask(Number(id));
+      setFormData({
+        title: task.title,
+        description: task.description || '',
+        status: task.status,
+        priority: task.priority,
+        due_date: task.due_date || '',
+        assigned_to_ids: task.assigned_to.map(u => u.id),
+      });
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to load task');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    if (existingTask) {
-      setFormData({
-        title: existingTask.title,
-        description: existingTask.description,
-        status: existingTask.status,
-        priority: existingTask.priority,
-        due_date: existingTask.due_date || '',
-        assigned_to: existingTask.assigned_to.map(a => a.id),
-      });
+    fetchUsers();
+    if (isEditMode) {
+      fetchTask();
     }
-  }, [existingTask]);
+  }, [id]);
 
+  // Validate form
   const validateForm = (): boolean => {
-    const newErrors: Partial<Record<keyof TaskFormData, string>> = {};
+    const newErrors: Record<string, string> = {};
 
     if (!formData.title.trim()) {
       newErrors.title = 'Title is required';
-    }
-
-    if (!formData.description.trim()) {
-      newErrors.description = 'Description is required';
-    }
-
-    if (formData.assigned_to.length === 0) {
-      newErrors.assigned_to = 'Please assign at least one employee';
     }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
+  // Handle submit
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
     if (!validateForm()) return;
 
-    setIsSubmitting(true);
+    try {
+      setSubmitting(true);
+      setError(null);
 
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
+      const payload = {
+        ...formData,
+        due_date: formData.due_date || null,
+      };
 
-    setIsSubmitting(false);
-    navigate('/tasks?success=' + (isEditing ? 'Task updated successfully' : 'Task created successfully'));
+      if (isEditMode) {
+        await taskApi.updateTask(Number(id), payload);
+      } else {
+        await taskApi.createTask(payload);
+      }
+
+      navigate('/tasks?success=' + (isEditMode ? 'Task updated' : 'Task created'));
+    } catch (err: any) {
+      setError(
+        err.response?.data?.message || 
+        err.response?.data?.detail ||
+        `Failed to ${isEditMode ? 'update' : 'create'} task`
+      );
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleAssigneeToggle = (employeeId: number) => {
+  // Handle assignee toggle
+  const handleAssigneeToggle = (userId: number) => {
     setFormData(prev => ({
       ...prev,
-      assigned_to: prev.assigned_to.includes(employeeId)
-        ? prev.assigned_to.filter(id => id !== employeeId)
-        : [...prev.assigned_to, employeeId],
+      assigned_to_ids: prev.assigned_to_ids.includes(userId)
+        ? prev.assigned_to_ids.filter(id => id !== userId)
+        : [...prev.assigned_to_ids, userId],
     }));
-    setErrors(prev => ({ ...prev, assigned_to: undefined }));
   };
 
-  if (isEditing && !existingTask) {
+  if (loading) {
     return (
       <AppLayout>
         <div className="p-6">
           <Card className="border-0 shadow-sm">
             <div className="text-center py-12">
-              <h3 className="text-lg font-medium text-gray-800 mb-2">Task Not Found</h3>
-              <p className="text-gray-500 mb-4">The task you're trying to edit doesn't exist.</p>
-              <Button onClick={() => navigate('/tasks')}>Back to Tasks</Button>
+              <div className="w-12 h-12 border-4 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+              <p className="text-gray-500">Loading task...</p>
             </div>
           </Card>
         </div>
@@ -109,33 +154,37 @@ export const TaskFormPage: React.FC = () => {
           <nav className="text-sm text-gray-500 mb-2">
             <Link to="/tasks" className="hover:text-primary-500">Tasks</Link>
             <span className="mx-2">/</span>
-            <span className="text-gray-700">{isEditing ? 'Edit Task' : 'Create Task'}</span>
+            <span className="text-gray-700">{isEditMode ? 'Edit Task' : 'Create Task'}</span>
           </nav>
           <h1 className="text-2xl font-bold text-gray-800">
-            {isEditing ? 'Edit Task' : 'Create New Task'}
+            {isEditMode ? 'Edit Task' : 'Create New Task'}
           </h1>
         </div>
+
+        {/* Error */}
+        {error && (
+          <div className="bg-red-50 text-red-600 p-4 rounded-lg mb-6">
+            {error}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit}>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Main Form */}
-            <div className="lg:col-span-2 space-y-6">
+            <div className="lg:col-span-2">
               <Card className="border-0 shadow-sm">
-                <h2 className="text-lg font-semibold text-gray-800 mb-4">Task Details</h2>
-                
+                <h2 className="text-lg font-semibold text-gray-800 mb-4">Task Information</h2>
+
                 <div className="space-y-4">
                   {/* Title */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Title <span className="text-red-500">*</span>
+                      Title *
                     </label>
                     <Input
                       type="text"
                       value={formData.title}
-                      onChange={e => {
-                        setFormData(prev => ({ ...prev, title: e.target.value }));
-                        setErrors(prev => ({ ...prev, title: undefined }));
-                      }}
+                      onChange={e => setFormData(prev => ({ ...prev, title: e.target.value }))}
                       placeholder="Enter task title"
                       error={errors.title}
                     />
@@ -144,109 +193,59 @@ export const TaskFormPage: React.FC = () => {
                   {/* Description */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Description <span className="text-red-500">*</span>
+                      Description
                     </label>
                     <textarea
                       value={formData.description}
-                      onChange={e => {
-                        setFormData(prev => ({ ...prev, description: e.target.value }));
-                        setErrors(prev => ({ ...prev, description: undefined }));
-                      }}
+                      onChange={e => setFormData(prev => ({ ...prev, description: e.target.value }))}
                       placeholder="Enter task description"
                       rows={5}
-                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 ${
-                        errors.description ? 'border-red-500' : 'border-gray-300'
-                      }`}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                     />
-                    {errors.description && (
-                      <p className="text-sm text-red-500 mt-1">{errors.description}</p>
-                    )}
-                  </div>
-                </div>
-              </Card>
-
-              {/* Assign To */}
-              <Card className="border-0 shadow-sm">
-                <h2 className="text-lg font-semibold text-gray-800 mb-4">
-                  Assign To <span className="text-red-500">*</span>
-                </h2>
-                
-                {errors.assigned_to && (
-                  <p className="text-sm text-red-500 mb-3">{errors.assigned_to}</p>
-                )}
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {employees.map(employee => (
-                    <label
-                      key={employee.id}
-                      className={`flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${
-                        formData.assigned_to.includes(employee.id)
-                          ? 'border-primary-500 bg-primary-50'
-                          : 'border-gray-200 hover:border-gray-300'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={formData.assigned_to.includes(employee.id)}
-                        onChange={() => handleAssigneeToggle(employee.id)}
-                        className="w-4 h-4 text-primary-500 rounded focus:ring-primary-500"
-                      />
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-full bg-primary-100 text-primary-600 flex items-center justify-center font-medium text-sm">
-                          {employee.full_name.charAt(0)}
-                        </div>
-                        <div>
-                          <p className="font-medium text-gray-800 text-sm">{employee.full_name}</p>
-                          <p className="text-xs text-gray-500">@{employee.username}</p>
-                        </div>
-                      </div>
-                    </label>
-                  ))}
-                </div>
-              </Card>
-            </div>
-
-            {/* Sidebar */}
-            <div className="space-y-6">
-              <Card className="border-0 shadow-sm">
-                <h2 className="text-lg font-semibold text-gray-800 mb-4">Task Settings</h2>
-                
-                <div className="space-y-4">
-                  {/* Status */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-                    <select
-                      value={formData.status}
-                      onChange={e => setFormData(prev => ({ ...prev, status: e.target.value as TaskStatus }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    >
-                      {STATUS_OPTIONS.map(option => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
                   </div>
 
-                  {/* Priority */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
-                    <select
-                      value={formData.priority}
-                      onChange={e => setFormData(prev => ({ ...prev, priority: e.target.value as TaskPriority }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    >
-                      {PRIORITY_OPTIONS.map(option => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
+                  {/* Status & Priority */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Status
+                      </label>
+                      <select
+                        value={formData.status}
+                        onChange={e => setFormData(prev => ({ ...prev, status: e.target.value as TaskStatus }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      >
+                        {STATUS_OPTIONS.map(option => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Priority
+                      </label>
+                      <select
+                        value={formData.priority}
+                        onChange={e => setFormData(prev => ({ ...prev, priority: e.target.value as TaskPriority }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      >
+                        {PRIORITY_OPTIONS.map(option => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
 
                   {/* Due Date */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Due Date
+                    </label>
                     <Input
                       type="date"
                       value={formData.due_date}
@@ -255,16 +254,49 @@ export const TaskFormPage: React.FC = () => {
                   </div>
                 </div>
               </Card>
+            </div>
+
+            {/* Sidebar */}
+            <div className="space-y-6">
+              {/* Assignees */}
+              <Card className="border-0 shadow-sm">
+                <h2 className="text-lg font-semibold text-gray-800 mb-4">
+                  Assign To ({formData.assigned_to_ids.length})
+                </h2>
+                <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                  {users.length > 0 ? (
+                    users.map(user => (
+                      <label
+                        key={user.id}
+                        className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors ${
+                          formData.assigned_to_ids.includes(user.id)
+                            ? 'bg-primary-50 border-2 border-primary-500'
+                            : 'bg-gray-50 border-2 border-transparent hover:bg-gray-100'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={formData.assigned_to_ids.includes(user.id)}
+                          onChange={() => handleAssigneeToggle(user.id)}
+                          className="w-4 h-4 text-primary-500 rounded focus:ring-primary-500"
+                        />
+                        <div>
+                          <p className="font-medium text-gray-800 text-sm">{user.full_name}</p>
+                          <p className="text-xs text-gray-500">@{user.username}</p>
+                        </div>
+                      </label>
+                    ))
+                  ) : (
+                    <p className="text-gray-500 text-sm">No users available</p>
+                  )}
+                </div>
+              </Card>
 
               {/* Actions */}
               <Card className="border-0 shadow-sm">
                 <div className="space-y-3">
-                  <Button
-                    type="submit"
-                    isLoading={isSubmitting}
-                    className="w-full"
-                  >
-                    {isEditing ? 'Update Task' : 'Create Task'}
+                  <Button type="submit" isLoading={submitting} className="w-full">
+                    {isEditMode ? 'Update Task' : 'Create Task'}
                   </Button>
                   <Button
                     type="button"
@@ -283,5 +315,9 @@ export const TaskFormPage: React.FC = () => {
     </AppLayout>
   );
 };
+
+// Wrapper components for routing
+export const CreateTaskPage: React.FC = () => <TaskFormPage />;
+export const EditTaskPage: React.FC = () => <TaskFormPage />;
 
 export default TaskFormPage;

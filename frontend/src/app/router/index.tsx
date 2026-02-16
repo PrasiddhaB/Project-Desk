@@ -45,7 +45,7 @@ import {
   ContactSupportPage,
   MyTicketsPage,
   TicketDetailPage,
-  AdminSupportPage,
+  AllTicketsPage,
 } from '@/features/support/pages';
 
 // Notifications
@@ -265,7 +265,7 @@ export const router = createBrowserRouter([
         children: [
           {
             path: '/admin/support',
-            element: <AdminSupportPage />,
+            element: <AllTicketsPage />,
           },
         ],
       },

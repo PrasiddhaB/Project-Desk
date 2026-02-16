@@ -1,7 +1,16 @@
 """
 Accounts views module.
 """
-from .api import RegisterView, LoginView, LogoutView, MeView, CustomTokenRefreshView, UsersListView
+from .api import (
+    RegisterView, 
+    LoginView, 
+    LogoutView, 
+    MeView, 
+    CustomTokenRefreshView, 
+    UsersListView,
+    DashboardView,
+    ProfileUpdateView,
+)
 
 __all__ = [
     'RegisterView',
@@ -9,5 +18,7 @@ __all__ = [
     'LogoutView',
     'MeView',
     'CustomTokenRefreshView',
-    'UsersListView'
+    'UsersListView',
+    'DashboardView',
+    'ProfileUpdateView',
 ]

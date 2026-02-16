@@ -10,6 +10,9 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/auth/', include('apps.accounts.urls')),
     path('api/tasks/', include('apps.tasks.urls')),
+    path('api/notes/', include('apps.notes.urls')),
+    path('api/support/', include('apps.support.urls')),
+    path('api/notifications/', include('apps.notifications.urls')),
 ]
 
 if settings.DEBUG:

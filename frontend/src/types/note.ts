@@ -19,12 +19,13 @@ export interface Note {
   id: number;
   title: string;
   content: string;
-  user_id: number;
+  user: number;
   owner_name?: string;
   status: NoteStatus;
   pinned: boolean;
   is_private: boolean;
   shares?: NoteShare[];
+  share_count?: number;
   can_edit?: boolean;
   created_at: string;
   updated_at: string;

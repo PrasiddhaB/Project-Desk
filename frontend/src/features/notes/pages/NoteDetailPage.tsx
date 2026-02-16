@@ -1,86 +1,136 @@
 /**
- * Note Detail Page - View note with full content
+ * Note Detail Page
+ * Dynamic - connects to backend API
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { AppLayout } from '@/components/layout';
 import { Card, Button, Badge, Avatar } from '@/components/ui';
 import { useAuth } from '@/app/providers/AuthProvider';
-import { getNoteById, mockSharedNotes } from '@/mock/notes';
-import { mockUsers } from '@/mock/users';
-import { NoteStatus, NOTE_STATUS_OPTIONS } from '@/types';
+import { noteApi } from '@/services/notes';
+import { Note, NOTE_STATUS_OPTIONS } from '@/types';
+import client from '@/services/http/client';
+
+interface UserOption {
+  id: number;
+  username: string;
+  full_name: string;
+}
 
 export const NoteDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const note = getNoteById(Number(id));
-  const isAdmin = user?.role === 'admin';
 
-  const [status, setStatus] = useState<NoteStatus>(note?.status || 'not-started');
+  const [note, setNote] = useState<Note | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Share modal
   const [showShareModal, setShowShareModal] = useState(false);
+  const [users, setUsers] = useState<UserOption[]>([]);
+  const [shareUserId, setShareUserId] = useState<number | ''>('');
+  const [shareCanEdit, setShareCanEdit] = useState(false);
+  const [sharing, setSharing] = useState(false);
 
-  if (!note) {
+  const fetchNote = async () => {
+    try {
+      setLoading(true);
+      const data = await noteApi.getNote(Number(id));
+      setNote(data);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to load note');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchUsers = async () => {
+    try {
+      const response = await client.get('/auth/users/');
+      setUsers(response.data.data || []);
+    } catch (err) {
+      console.error('Error fetching users:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchNote();
+    fetchUsers();
+  }, [id]);
+
+  const handleDelete = async () => {
+    if (!note) return;
+    if (!window.confirm(`Delete "${note.title}"?`)) return;
+
+    try {
+      await noteApi.deleteNote(note.id);
+      navigate('/notes');
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Failed to delete');
+    }
+  };
+
+  const handleShare = async () => {
+    if (!note || !shareUserId) return;
+
+    try {
+      setSharing(true);
+      await noteApi.shareNote(note.id, {
+        shared_with: Number(shareUserId),
+        can_edit: shareCanEdit,
+      });
+      await fetchNote();
+      setShowShareModal(false);
+      setShareUserId('');
+      setShareCanEdit(false);
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Failed to share');
+    } finally {
+      setSharing(false);
+    }
+  };
+
+  const handleUnshare = async (userId: number) => {
+    if (!note) return;
+    if (!window.confirm('Remove share?')) return;
+
+    try {
+      await noteApi.unshareNote(note.id, userId);
+      await fetchNote();
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Failed to remove share');
+    }
+  };
+
+  const isOwner = note?.user === user?.id;
+
+  if (loading) {
     return (
       <AppLayout>
         <div className="p-6">
-          <Card className="border-0 shadow-sm">
-            <div className="text-center py-12">
-              <svg className="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <h3 className="text-lg font-medium text-gray-800 mb-2">Note Not Found</h3>
-              <p className="text-gray-500 mb-4">The note you're looking for doesn't exist.</p>
-              <Button onClick={() => navigate('/notes')}>Back to Notes</Button>
-            </div>
+          <Card className="border-0 shadow-sm text-center py-12">
+            <div className="w-12 h-12 border-4 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+            <p className="text-gray-500">Loading note...</p>
           </Card>
         </div>
       </AppLayout>
     );
   }
 
-  const canEdit = note.user_id === user?.id || isAdmin || note.can_edit;
-  const canDelete = note.user_id === user?.id || isAdmin;
-
-  // Get shares for this note
-  const noteShares = mockSharedNotes.filter(share => share.note_id === note.id);
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
-  };
-
-  const getStatusBadge = (status: NoteStatus) => {
-    switch (status) {
-      case 'not-started':
-        return <Badge variant="gray">Not Started</Badge>;
-      case 'pending':
-        return <Badge variant="warning">Pending</Badge>;
-      case 'completed':
-        return <Badge variant="success">Completed</Badge>;
-      default:
-        return <Badge variant="gray">{status}</Badge>;
-    }
-  };
-
-  const handleDelete = () => {
-    if (window.confirm('Are you sure you want to delete this note?')) {
-      // Mock delete
-      console.log('Delete note:', note.id);
-      navigate('/notes?success=Note deleted successfully');
-    }
-  };
-
-  const handleStatusUpdate = async (newStatus: NoteStatus) => {
-    setStatus(newStatus);
-    // Mock API call
-    console.log('Update status:', newStatus);
-  };
+  if (error || !note) {
+    return (
+      <AppLayout>
+        <div className="p-6">
+          <Card className="border-0 shadow-sm text-center py-12">
+            <h3 className="text-lg font-medium text-gray-800 mb-4">{error || 'Note not found'}</h3>
+            <Button onClick={() => navigate('/notes')}>Back to Notes</Button>
+          </Card>
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout>
@@ -90,156 +140,147 @@ export const NoteDetailPage: React.FC = () => {
           <nav className="text-sm text-gray-500 mb-2">
             <Link to="/notes" className="hover:text-primary-500">Notes</Link>
             <span className="mx-2">/</span>
-            <span className="text-gray-700">View Note</span>
+            <span className="text-gray-700">{note.title}</span>
           </nav>
+
           <div className="flex items-start justify-between">
             <div>
-              <div className="flex items-center gap-3 mb-2">
-                {note.pinned && <span className="text-yellow-500 text-xl">📌</span>}
-                <h1 className="text-2xl font-bold text-gray-800">{note.title}</h1>
-              </div>
+              <h1 className="text-2xl font-bold text-gray-800 mb-2">{note.title}</h1>
               <div className="flex items-center gap-3">
-                {getStatusBadge(status)}
-                {note.is_private && (
-                  <Badge variant="gray">
-                    <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                    </svg>
-                    Private
-                  </Badge>
-                )}
+                <Badge variant={note.status === 'completed' ? 'success' : note.status === 'pending' ? 'warning' : 'secondary'}>
+                  {NOTE_STATUS_OPTIONS.find(o => o.value === note.status)?.label}
+                </Badge>
+                {note.pinned && <Badge variant="warning">Pinned</Badge>}
+                {note.is_private && <Badge variant="secondary">Private</Badge>}
               </div>
             </div>
+
             <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={() => navigate('/notes')}>
-                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                </svg>
-                Back
-              </Button>
-              {canEdit && (
+              <Button variant="outline" onClick={() => navigate('/notes')}>Back</Button>
+              {note.can_edit && (
                 <Button variant="outline" onClick={() => navigate(`/notes/${note.id}/edit`)}>
-                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                  </svg>
                   Edit
                 </Button>
               )}
-              {canDelete && (
-                <Button variant="danger" onClick={handleDelete}>
-                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                  Delete
-                </Button>
+              {isOwner && (
+                <>
+                  <Button variant="outline" onClick={() => setShowShareModal(true)}>
+                    Share
+                  </Button>
+                  <Button variant="danger" onClick={handleDelete}>Delete</Button>
+                </>
               )}
             </div>
           </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Main Content */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Note Content */}
+          {/* Content */}
+          <div className="lg:col-span-2">
             <Card className="border-0 shadow-sm">
-              <div 
-                className="prose prose-sm max-w-none"
-                dangerouslySetInnerHTML={{ __html: note.content }}
+              <h2 className="text-lg font-semibold text-gray-800 mb-4">Content</h2>
+              <div
+                className="prose max-w-none text-gray-600"
+                dangerouslySetInnerHTML={{ __html: note.content || '<p>No content</p>' }}
               />
             </Card>
-
-            {/* Update Status */}
-            {canEdit && (
-              <Card className="border-0 shadow-sm">
-                <h2 className="text-lg font-semibold text-gray-800 mb-4">Update Status</h2>
-                <div className="flex flex-wrap gap-2">
-                  {NOTE_STATUS_OPTIONS.map(option => (
-                    <button
-                      key={option.value}
-                      onClick={() => handleStatusUpdate(option.value)}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                        status === option.value
-                          ? option.value === 'not-started'
-                            ? 'bg-gray-200 text-gray-800'
-                            : option.value === 'pending'
-                            ? 'bg-yellow-100 text-yellow-800'
-                            : 'bg-green-100 text-green-800'
-                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                      }`}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-              </Card>
-            )}
           </div>
 
           {/* Sidebar */}
           <div className="space-y-6">
-            {/* Note Info */}
             <Card className="border-0 shadow-sm">
-              <h2 className="text-lg font-semibold text-gray-800 mb-4">Note Information</h2>
-              
-              <div className="space-y-4">
-                {/* Owner */}
+              <h2 className="text-lg font-semibold text-gray-800 mb-4">Details</h2>
+              <div className="space-y-3 text-sm">
                 <div>
-                  <label className="text-sm text-gray-500 block mb-1">Created By</label>
-                  <div className="flex items-center gap-2">
-                    <Avatar name={note.owner_name || 'Unknown'} size="sm" />
-                    <span className="font-medium text-gray-800">{note.owner_name}</span>
-                  </div>
+                  <p className="text-gray-500">Owner</p>
+                  <p className="font-medium text-gray-800">{note.owner_name}</p>
                 </div>
-
-                {/* Created At */}
                 <div>
-                  <label className="text-sm text-gray-500 block mb-1">Created</label>
-                  <span className="text-gray-600">{formatDate(note.created_at)}</span>
+                  <p className="text-gray-500">Created</p>
+                  <p className="text-gray-800">{new Date(note.created_at).toLocaleDateString()}</p>
                 </div>
-
-                {/* Updated At */}
                 <div>
-                  <label className="text-sm text-gray-500 block mb-1">Last Updated</label>
-                  <span className="text-gray-600">{formatDate(note.updated_at)}</span>
+                  <p className="text-gray-500">Updated</p>
+                  <p className="text-gray-800">{new Date(note.updated_at).toLocaleDateString()}</p>
                 </div>
               </div>
             </Card>
 
-            {/* Shared With */}
-            {noteShares.length > 0 && (
+            {/* Shares */}
+            {isOwner && note.shares && note.shares.length > 0 && (
               <Card className="border-0 shadow-sm">
-                <h2 className="text-lg font-semibold text-gray-800 mb-4">Shared With</h2>
-                <div className="space-y-3">
-                  {noteShares.map(share => (
+                <h2 className="text-lg font-semibold text-gray-800 mb-4">
+                  Shared With ({note.shares.length})
+                </h2>
+                <div className="space-y-2">
+                  {note.shares.map(share => (
                     <div key={share.id} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
                       <div className="flex items-center gap-2">
                         <Avatar name={share.shared_with_name} size="sm" />
-                        <span className="text-sm text-gray-800">{share.shared_with_name}</span>
+                        <div>
+                          <p className="text-sm font-medium">{share.shared_with_name}</p>
+                          <p className="text-xs text-gray-500">
+                            {share.can_edit ? 'Can edit' : 'View only'}
+                          </p>
+                        </div>
                       </div>
-                      {share.can_edit && (
-                        <Badge variant="success" size="sm">Can Edit</Badge>
-                      )}
+                      <button
+                        onClick={() => handleUnshare(share.shared_with)}
+                        className="text-red-500 hover:text-red-700 text-sm"
+                      >
+                        Remove
+                      </button>
                     </div>
                   ))}
                 </div>
               </Card>
             )}
-
-            {/* Share Button */}
-            {note.user_id === user?.id && !note.is_private && (
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={() => setShowShareModal(true)}
-              >
-                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-                </svg>
-                Share Note
-              </Button>
-            )}
           </div>
         </div>
+
+        {/* Share Modal */}
+        {showShareModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <Card className="w-full max-w-md mx-4">
+              <h3 className="text-lg font-semibold mb-4">Share Note</h3>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Share with</label>
+                  <select
+                    value={shareUserId}
+                    onChange={e => setShareUserId(Number(e.target.value))}
+                    className="w-full px-3 py-2 border rounded-lg"
+                  >
+                    <option value="">Select user...</option>
+                    {users.filter(u => u.id !== user?.id).map(u => (
+                      <option key={u.id} value={u.id}>{u.full_name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={shareCanEdit}
+                    onChange={e => setShareCanEdit(e.target.checked)}
+                    className="w-4 h-4"
+                  />
+                  <span className="text-sm">Allow editing</span>
+                </label>
+              </div>
+
+              <div className="flex justify-end gap-2 mt-6">
+                <Button variant="outline" onClick={() => setShowShareModal(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleShare} isLoading={sharing} disabled={!shareUserId}>
+                  Share
+                </Button>
+              </div>
+            </Card>
+          </div>
+        )}
       </div>
     </AppLayout>
   );

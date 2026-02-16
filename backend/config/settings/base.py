@@ -7,6 +7,7 @@ from datetime import timedelta
 from dotenv import load_dotenv
 load_dotenv()
 
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -31,6 +32,9 @@ INSTALLED_APPS = [
     'apps.accounts',
     'apps.common',
     'apps.tasks',
+    'apps.notes',
+    'apps.support',
+    'apps.notifications',
 ]
 
 MIDDLEWARE = [
@@ -70,8 +74,9 @@ DATABASES = {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': os.environ.get('DB_NAME', 'project_desk_db'),
         'USER': os.environ.get('DB_USER', 'postgres'),
-        'PASSWORD': os.environ.get('DB_PASSWORD', 'postgres'),
-        'HOST': os.environ.get('DB_HOST', 'localhost'),
+        'PASSWORD': os.environ.get('DB_PASSWORD', ''),
+        'HOST': os.environ.get('DB_HOST', '127.0.0.1'),
+
         'PORT': os.environ.get('DB_PORT', '5432'),
     }
 }

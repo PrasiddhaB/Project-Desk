@@ -10,6 +10,13 @@ export interface TaskAssignee {
   full_name: string;
   username: string;
   email: string;
+  profile_pic?: string;
+}
+
+export interface TaskCreator {
+  id: number;
+  username: string;
+  full_name: string;
 }
 
 export interface Task {
@@ -19,9 +26,11 @@ export interface Task {
   status: TaskStatus;
   priority: TaskPriority;
   due_date: string | null;
-  created_by: number;
+  created_by: TaskCreator;
   created_by_name?: string;
   assigned_to: TaskAssignee[];
+  is_overdue?: boolean;
+  assignee_count?: number;
   created_at: string;
   updated_at: string;
 }
@@ -32,7 +41,17 @@ export interface TaskFormData {
   status: TaskStatus;
   priority: TaskPriority;
   due_date: string;
-  assigned_to: number[];
+  assigned_to_ids: number[];
+}
+
+export interface TaskStats {
+  total: number;
+  pending: number;
+  in_progress: number;
+  completed: number;
+  overdue: number;
+  due_today: number;
+  high_priority: number;
 }
 
 export const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
