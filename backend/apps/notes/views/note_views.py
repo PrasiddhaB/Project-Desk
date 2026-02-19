@@ -17,6 +17,7 @@ from apps.notes.serializers import (
     NoteShareSerializer,
     ShareNoteRequestSerializer,
 )
+from apps.notes.permissions import HasActiveSubscription, check_note_limit
 from apps.accounts.models import User
 
 
@@ -34,9 +35,11 @@ class NoteViewSet(viewsets.ModelViewSet):
     - GET /api/notes/shared/ - Notes shared with user
     - POST /api/notes/{id}/share/ - Share note with user
     - DELETE /api/notes/{id}/unshare/{user_id}/ - Remove share
+    
+    Note: Employees need active subscription to access notes.
     """
     
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasActiveSubscription]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['title', 'content']
     ordering_fields = ['created_at', 'updated_at', 'pinned']
@@ -84,6 +87,16 @@ class NoteViewSet(viewsets.ModelViewSet):
         return queryset
     
     def create(self, request, *args, **kwargs):
+        # Check note limit before creating
+        is_private = request.data.get('is_private', False)
+        can_create, message = check_note_limit(request.user, is_private)
+        
+        if not can_create:
+            return Response({
+                'message': message,
+                'limit_reached': True
+            }, status=status.HTTP_403_FORBIDDEN)
+        
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         note = serializer.save()

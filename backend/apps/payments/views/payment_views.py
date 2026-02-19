@@ -1,58 +1,48 @@
 """
-Payment API views.
+Payment API views with Khalti integration.
 """
+import requests
+import json
+import uuid
+from datetime import timedelta
+
+from django.conf import settings
+from django.utils import timezone
+from django.shortcuts import redirect
+
 from rest_framework import viewsets, status
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from django.utils import timezone
+from rest_framework.views import APIView
 
-from apps.payments.models import SubscriptionPlan, Subscription, Payment, Invoice
+from apps.payments.models import SubscriptionPlan, Subscription, Payment
 from apps.payments.serializers import (
     SubscriptionPlanSerializer,
     SubscriptionSerializer,
     SubscriptionDetailSerializer,
     PaymentSerializer,
-    InvoiceSerializer,
-    CreateSubscriptionSerializer,
-    UpdateSubscriptionSerializer,
+    InitiatePaymentSerializer,
 )
 
 
+# Khalti API Configuration
+KHALTI_SECRET_KEY = '5bf2afad915247d1a28055fb7aaee102'  # Test key
+KHALTI_API_URL = 'https://dev.khalti.com/api/v2/epayment/initiate/'
+KHALTI_LOOKUP_URL = 'https://dev.khalti.com/api/v2/epayment/lookup/'
+
+
 class SubscriptionPlanViewSet(viewsets.ReadOnlyModelViewSet):
-    """
-    ViewSet for subscription plans.
-    Anyone can view plans, only admin can manage.
-    """
+    """ViewSet for subscription plans."""
     queryset = SubscriptionPlan.objects.filter(is_active=True)
     serializer_class = SubscriptionPlanSerializer
     permission_classes = [AllowAny]
-    
-    @action(detail=False, methods=['get'], url_path='compare')
-    def compare(self, request):
-        """Compare all plans side by side."""
-        plans = SubscriptionPlan.objects.filter(is_active=True).order_by('price_monthly')
-        serializer = self.get_serializer(plans, many=True)
-        return Response({
-            'count': plans.count(),
-            'data': serializer.data
-        })
 
 
-class SubscriptionViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet for user subscriptions.
-    """
+class SubscriptionViewSet(viewsets.ReadOnlyModelViewSet):
+    """ViewSet for user subscriptions."""
     permission_classes = [IsAuthenticated]
-    
-    def get_serializer_class(self):
-        if self.action == 'retrieve':
-            return SubscriptionDetailSerializer
-        elif self.action == 'create':
-            return CreateSubscriptionSerializer
-        elif self.action in ['update', 'partial_update']:
-            return UpdateSubscriptionSerializer
-        return SubscriptionSerializer
+    serializer_class = SubscriptionSerializer
     
     def get_queryset(self):
         user = self.request.user
@@ -62,169 +52,76 @@ class SubscriptionViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'], url_path='my-subscription')
     def my_subscription(self, request):
-        """Get current user's subscription."""
+        """Get current user's active subscription."""
         try:
-            subscription = Subscription.objects.select_related('plan').get(user=request.user)
-            serializer = SubscriptionDetailSerializer(subscription)
-            return Response({
-                'data': serializer.data
-            })
+            subscription = Subscription.objects.select_related('plan').get(
+                user=request.user,
+                status='active'
+            )
+            # Check if expired
+            subscription.check_expired()
+            
+            if subscription.is_active:
+                serializer = SubscriptionDetailSerializer(subscription)
+                return Response({
+                    'has_subscription': True,
+                    'data': serializer.data
+                })
+            else:
+                return Response({
+                    'has_subscription': False,
+                    'message': 'Subscription expired',
+                    'data': None
+                })
         except Subscription.DoesNotExist:
             return Response({
+                'has_subscription': False,
                 'message': 'No active subscription',
                 'data': None
             })
     
-    def create(self, request, *args, **kwargs):
-        """Create a new subscription for the user."""
-        # Check if user already has subscription
-        if Subscription.objects.filter(user=request.user).exists():
+    @action(detail=False, methods=['get'], url_path='check')
+    def check_subscription(self, request):
+        """Quick check if user has active subscription (for frontend guards)."""
+        # Admin always has access
+        if request.user.role == 'admin':
             return Response({
-                'message': 'User already has a subscription. Use upgrade/downgrade instead.'
-            }, status=status.HTTP_400_BAD_REQUEST)
+                'has_access': True,
+                'is_admin': True
+            })
         
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        
-        plan = SubscriptionPlan.objects.get(id=serializer.validated_data['plan_id'])
-        billing_cycle = serializer.validated_data['billing_cycle']
-        
-        # Create subscription with trial
-        subscription = Subscription.objects.create(
-            user=request.user,
-            plan=plan,
-            billing_cycle=billing_cycle,
-            status=Subscription.Status.TRIAL
-        )
-        subscription.start_trial(days=14)
-        
-        response_serializer = SubscriptionDetailSerializer(subscription)
-        return Response({
-            'message': 'Subscription created with 14-day trial',
-            'data': response_serializer.data
-        }, status=status.HTTP_201_CREATED)
-    
-    @action(detail=False, methods=['post'], url_path='upgrade')
-    def upgrade(self, request):
-        """Upgrade subscription to a higher plan."""
         try:
-            subscription = Subscription.objects.get(user=request.user)
+            subscription = Subscription.objects.get(user=request.user, status='active')
+            subscription.check_expired()
+            
+            return Response({
+                'has_access': subscription.is_active,
+                'is_admin': False,
+                'plan_name': subscription.plan.name if subscription.is_active else None,
+                'days_remaining': subscription.days_remaining if subscription.is_active else 0
+            })
         except Subscription.DoesNotExist:
             return Response({
-                'message': 'No subscription found'
-            }, status=status.HTTP_404_NOT_FOUND)
-        
-        plan_id = request.data.get('plan_id')
-        if not plan_id:
-            return Response({
-                'message': 'plan_id is required'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        try:
-            new_plan = SubscriptionPlan.objects.get(id=plan_id, is_active=True)
-        except SubscriptionPlan.DoesNotExist:
-            return Response({
-                'message': 'Invalid plan'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Check if it's actually an upgrade
-        if new_plan.price_monthly <= subscription.plan.price_monthly:
-            return Response({
-                'message': 'New plan must be higher than current plan'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        old_plan = subscription.plan.name
-        subscription.plan = new_plan
-        subscription.save()
-        
-        serializer = SubscriptionDetailSerializer(subscription)
-        return Response({
-            'message': f'Upgraded from {old_plan} to {new_plan.name}',
-            'data': serializer.data
-        })
-    
-    @action(detail=False, methods=['post'], url_path='cancel')
-    def cancel(self, request):
-        """Cancel subscription."""
-        try:
-            subscription = Subscription.objects.get(user=request.user)
-        except Subscription.DoesNotExist:
-            return Response({
-                'message': 'No subscription found'
-            }, status=status.HTTP_404_NOT_FOUND)
-        
-        subscription.cancel()
-        
-        serializer = SubscriptionDetailSerializer(subscription)
-        return Response({
-            'message': 'Subscription cancelled',
-            'data': serializer.data
-        })
-    
-    @action(detail=False, methods=['post'], url_path='reactivate')
-    def reactivate(self, request):
-        """Reactivate a cancelled subscription."""
-        try:
-            subscription = Subscription.objects.get(user=request.user)
-        except Subscription.DoesNotExist:
-            return Response({
-                'message': 'No subscription found'
-            }, status=status.HTTP_404_NOT_FOUND)
-        
-        if subscription.status != Subscription.Status.CANCELLED:
-            return Response({
-                'message': 'Subscription is not cancelled'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        subscription.activate()
-        
-        serializer = SubscriptionDetailSerializer(subscription)
-        return Response({
-            'message': 'Subscription reactivated',
-            'data': serializer.data
-        })
-    
-    @action(detail=False, methods=['get'], url_path='stats')
-    def stats(self, request):
-        """Get subscription stats (admin only)."""
-        if request.user.role != 'admin':
-            return Response({
-                'message': 'Admin only'
-            }, status=status.HTTP_403_FORBIDDEN)
-        
-        total = Subscription.objects.count()
-        active = Subscription.objects.filter(status=Subscription.Status.ACTIVE).count()
-        trial = Subscription.objects.filter(status=Subscription.Status.TRIAL).count()
-        cancelled = Subscription.objects.filter(status=Subscription.Status.CANCELLED).count()
-        
-        return Response({
-            'total': total,
-            'active': active,
-            'trial': trial,
-            'cancelled': cancelled,
-        })
+                'has_access': False,
+                'is_admin': False
+            })
 
 
 class PaymentViewSet(viewsets.ReadOnlyModelViewSet):
-    """
-    ViewSet for payments (read-only for users).
-    """
+    """ViewSet for payments."""
     serializer_class = PaymentSerializer
     permission_classes = [IsAuthenticated]
     
     def get_queryset(self):
         user = self.request.user
         if user.role == 'admin':
-            return Payment.objects.select_related('subscription__user').all()
-        return Payment.objects.filter(subscription__user=user)
+            return Payment.objects.select_related('user', 'plan').all()
+        return Payment.objects.filter(user=user).select_related('plan')
     
     @action(detail=False, methods=['get'], url_path='my-payments')
     def my_payments(self, request):
         """Get current user's payment history."""
-        payments = Payment.objects.filter(
-            subscription__user=request.user
-        ).order_by('-created_at')
-        
+        payments = Payment.objects.filter(user=request.user).order_by('-created_at')
         serializer = self.get_serializer(payments, many=True)
         return Response({
             'count': payments.count(),
@@ -232,28 +129,234 @@ class PaymentViewSet(viewsets.ReadOnlyModelViewSet):
         })
 
 
-class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
-    """
-    ViewSet for invoices (read-only for users).
-    """
-    serializer_class = InvoiceSerializer
+class InitiatePaymentView(APIView):
+    """Initiate Khalti payment."""
     permission_classes = [IsAuthenticated]
     
-    def get_queryset(self):
-        user = self.request.user
-        if user.role == 'admin':
-            return Invoice.objects.select_related('subscription__user').all()
-        return Invoice.objects.filter(subscription__user=user)
-    
-    @action(detail=False, methods=['get'], url_path='my-invoices')
-    def my_invoices(self, request):
-        """Get current user's invoices."""
-        invoices = Invoice.objects.filter(
-            subscription__user=request.user
-        ).order_by('-created_at')
+    def post(self, request):
+        serializer = InitiatePaymentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         
-        serializer = self.get_serializer(invoices, many=True)
-        return Response({
-            'count': invoices.count(),
-            'data': serializer.data
-        })
+        plan_id = serializer.validated_data['plan_id']
+        plan = SubscriptionPlan.objects.get(id=plan_id)
+        
+        # Check if user already has active subscription
+        existing_sub = Subscription.objects.filter(
+            user=request.user,
+            status='active',
+            end_date__gte=timezone.now().date()
+        ).first()
+        
+        if existing_sub:
+            return Response({
+                'success': False,
+                'message': 'You already have an active subscription'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Generate unique order ID
+        order_id = f"ORDER_{request.user.id}_{int(timezone.now().timestamp())}_{uuid.uuid4().hex[:8]}"
+        
+        # Amount in paisa (multiply by 100)
+        amount_in_paisa = int(plan.price * 100)
+        
+        # Minimum amount check (Rs. 10 = 1000 paisa)
+        if amount_in_paisa < 1000:
+            return Response({
+                'success': False,
+                'message': 'Amount should be greater than Rs. 10'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Construct return URL
+        # In production, use your actual domain
+        return_url = request.build_absolute_uri('/api/billing/verify-payment/')
+        website_url = request.build_absolute_uri('/')
+        
+        # Prepare Khalti payload
+        payload = {
+            'return_url': return_url,
+            'website_url': website_url,
+            'amount': str(amount_in_paisa),
+            'purchase_order_id': order_id,
+            'purchase_order_name': plan.name,
+            'customer_info': {
+                'name': request.user.full_name or 'Customer',
+                'email': request.user.email or 'test@test.com',
+                'phone': request.user.phone or '9800000001'
+            },
+            'amount_breakdown': [
+                {
+                    'label': 'Plan Price',
+                    'amount': amount_in_paisa
+                }
+            ],
+            'product_details': [
+                {
+                    'identity': str(plan.id),
+                    'name': plan.name,
+                    'total_price': amount_in_paisa,
+                    'quantity': 1,
+                    'unit_price': amount_in_paisa
+                }
+            ],
+            'merchant_username': request.user.username,
+            'merchant_extra': json.dumps({
+                'plan_id': plan.id,
+                'user_id': request.user.id,
+                'order_id': order_id,
+                'plan_name': plan.name,
+                'amount': amount_in_paisa
+            })
+        }
+        
+        # Call Khalti API
+        headers = {
+            'Authorization': f'Key {KHALTI_SECRET_KEY}',
+            'Content-Type': 'application/json'
+        }
+        
+        try:
+            response = requests.post(
+                KHALTI_API_URL,
+                json=payload,
+                headers=headers,
+                timeout=30
+            )
+            
+            response_data = response.json()
+            
+            if response.status_code == 200 and 'payment_url' in response_data:
+                # Create pending payment record
+                Payment.objects.create(
+                    user=request.user,
+                    plan=plan,
+                    amount=plan.price,
+                    status='pending',
+                    khalti_pidx=response_data.get('pidx'),
+                    purchase_order_id=order_id,
+                    description=f'Payment for {plan.name}'
+                )
+                
+                return Response({
+                    'success': True,
+                    'payment_url': response_data['payment_url'],
+                    'pidx': response_data.get('pidx'),
+                    'expires_at': response_data.get('expires_at'),
+                    'expires_in': response_data.get('expires_in')
+                })
+            else:
+                error_message = response_data.get('detail', 'Payment initiation failed')
+                return Response({
+                    'success': False,
+                    'message': error_message
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
+        except requests.exceptions.RequestException as e:
+            return Response({
+                'success': False,
+                'message': 'Failed to connect to payment service'
+            }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def verify_payment(request):
+    """Verify Khalti payment callback."""
+    
+    pidx = request.GET.get('pidx')
+    transaction_id = request.GET.get('transaction_id')
+    amount = request.GET.get('amount')
+    payment_status = request.GET.get('status')
+    purchase_order_id = request.GET.get('purchase_order_id')
+    merchant_extra = request.GET.get('merchant_extra')
+    
+    # Frontend URL for redirects
+    frontend_url = 'http://localhost:5173'  # Change in production
+    
+    if not pidx:
+        return redirect(f'{frontend_url}/billing?payment_status=error&error=Missing payment ID')
+    
+    # Verify with Khalti lookup API
+    headers = {
+        'Authorization': f'Key {KHALTI_SECRET_KEY}',
+        'Content-Type': 'application/json'
+    }
+    
+    try:
+        response = requests.post(
+            KHALTI_LOOKUP_URL,
+            json={'pidx': pidx},
+            headers=headers,
+            timeout=30
+        )
+        
+        lookup_data = response.json()
+        
+        if response.status_code != 200:
+            return redirect(f'{frontend_url}/billing?payment_status=error&error=Verification failed')
+        
+        khalti_status = lookup_data.get('status')
+        
+        # Find the payment record
+        payment = Payment.objects.filter(khalti_pidx=pidx).first()
+        
+        if not payment:
+            return redirect(f'{frontend_url}/billing?payment_status=error&error=Payment not found')
+        
+        if khalti_status == 'Completed':
+            # Update payment status
+            payment.status = 'completed'
+            payment.khalti_transaction_id = lookup_data.get('transaction_id')
+            payment.save()
+            
+            # Create or update subscription
+            subscription, created = Subscription.objects.update_or_create(
+                user=payment.user,
+                defaults={
+                    'plan': payment.plan,
+                    'status': 'active',
+                    'start_date': timezone.now().date(),
+                    'end_date': timezone.now().date() + timedelta(days=30)
+                }
+            )
+            
+            # Create notification for admins (optional)
+            from apps.notifications.models import Notification
+            from apps.accounts.models import User
+            
+            admins = User.objects.filter(role='admin')
+            for admin in admins:
+                Notification.objects.create(
+                    user=admin,
+                    type='subscription',
+                    title='New Subscription',
+                    message=f'{payment.user.full_name} subscribed to {payment.plan.name} for Rs. {payment.amount}'
+                )
+            
+            return redirect(f'{frontend_url}/notes?payment_status=success')
+        
+        elif khalti_status == 'Pending':
+            return redirect(f'{frontend_url}/billing?payment_status=pending')
+        
+        elif khalti_status == 'Expired':
+            payment.status = 'expired'
+            payment.save()
+            return redirect(f'{frontend_url}/billing?payment_status=expired')
+        
+        elif khalti_status == 'User canceled':
+            payment.status = 'cancelled'
+            payment.save()
+            return redirect(f'{frontend_url}/billing?payment_status=cancelled')
+        
+        elif khalti_status == 'Refunded':
+            payment.status = 'refunded'
+            payment.save()
+            return redirect(f'{frontend_url}/billing?payment_status=refunded')
+        
+        else:
+            payment.status = 'failed'
+            payment.failure_reason = f'Unknown status: {khalti_status}'
+            payment.save()
+            return redirect(f'{frontend_url}/billing?payment_status=error&error={khalti_status}')
+            
+    except requests.exceptions.RequestException as e:
+        return redirect(f'{frontend_url}/billing?payment_status=error&error=Verification failed')

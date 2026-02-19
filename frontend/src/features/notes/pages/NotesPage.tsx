@@ -1,25 +1,61 @@
 /**
  * Notes Page - All notes (own + shared)
  * Dynamic - connects to backend API
+ * Requires active subscription for employees
  */
 
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { AppLayout } from '@/components/layout';
 import { Card, Button, Badge } from '@/components/ui';
 import { noteApi } from '@/services/notes';
+import { billingApi } from '@/services/payments';
 import { useAuth } from '@/app/providers/AuthProvider';
 import { Note, NoteStatus, NOTE_STATUS_OPTIONS } from '@/types';
 
 export const NotesPage: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const paymentStatus = searchParams.get('payment_status');
   const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
 
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
+  const [checkingAccess, setCheckingAccess] = useState(true);
+  const [hasAccess, setHasAccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'my' | 'shared'>('all');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Check subscription access first
+  useEffect(() => {
+    checkAccess();
+    if (paymentStatus === 'success') {
+      setSuccessMessage('Payment successful! Your subscription is now active.');
+    }
+  }, []);
+
+  const checkAccess = async () => {
+    try {
+      setCheckingAccess(true);
+      const result = await billingApi.checkSubscription();
+      setHasAccess(result.has_access);
+      
+      if (result.has_access) {
+        fetchNotes();
+      }
+    } catch (err) {
+      // If check fails, assume no access for employees
+      setHasAccess(isAdmin);
+      if (isAdmin) {
+        fetchNotes();
+      }
+    } finally {
+      setCheckingAccess(false);
+    }
+  };
 
   const fetchNotes = async () => {
     try {
@@ -37,15 +73,22 @@ export const NotesPage: React.FC = () => {
 
       setNotes(data);
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to load notes');
+      if (err.response?.status === 403) {
+        setHasAccess(false);
+        setError('You need an active subscription to access notes.');
+      } else {
+        setError(err.response?.data?.message || 'Failed to load notes');
+      }
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchNotes();
-  }, [filter]);
+    if (hasAccess) {
+      fetchNotes();
+    }
+  }, [filter, hasAccess]);
 
   const handleDelete = async (id: number, title: string) => {
     if (!window.confirm(`Delete "${title}"?`)) return;
@@ -78,9 +121,63 @@ export const NotesPage: React.FC = () => {
     });
   };
 
+  // Loading state
+  if (checkingAccess) {
+    return (
+      <AppLayout>
+        <div className="p-6 flex justify-center items-center min-h-[400px]">
+          <div className="w-12 h-12 border-4 border-primary-500 border-t-transparent rounded-full animate-spin"></div>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  // No subscription - show upgrade prompt
+  if (!hasAccess && !isAdmin) {
+    return (
+      <AppLayout>
+        <div className="p-6 bg-gray-50 min-h-full">
+          <div className="max-w-2xl mx-auto">
+            <Card className="border-0 shadow-sm text-center py-12">
+              <svg className="w-20 h-20 mx-auto mb-6 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+              <h2 className="text-2xl font-bold text-gray-800 mb-4">Subscription Required</h2>
+              <p className="text-gray-500 mb-6 max-w-md mx-auto">
+                You need an active subscription to access Notes features. 
+                Subscribe to create private notes and share notes with your team.
+              </p>
+              <Button onClick={() => navigate('/billing')} size="lg">
+                View Plans & Subscribe
+              </Button>
+            </Card>
+          </div>
+        </div>
+      </AppLayout>
+    );
+  }
+
   return (
     <AppLayout>
       <div className="p-6 bg-gray-50 min-h-full">
+        {/* Success Message */}
+        {successMessage && (
+          <div className="bg-green-50 border border-green-200 text-green-700 p-4 rounded-lg mb-6 flex items-center gap-3">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            {successMessage}
+            <button 
+              onClick={() => setSuccessMessage(null)} 
+              className="ml-auto text-green-700 hover:text-green-900"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        )}
+
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>

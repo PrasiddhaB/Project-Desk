@@ -2,28 +2,19 @@
  * Billing & Subscription Types
  */
 
-export type PlanType = 'free' | 'basic' | 'pro' | 'enterprise';
-export type SubscriptionStatus = 'active' | 'cancelled' | 'expired' | 'trial' | 'past_due';
-export type BillingCycle = 'monthly' | 'yearly';
-export type PaymentStatus = 'pending' | 'completed' | 'failed' | 'refunded';
-export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled';
+export type SubscriptionStatus = 'active' | 'expired' | 'cancelled';
+export type PaymentStatus = 'pending' | 'completed' | 'failed' | 'refunded' | 'expired' | 'cancelled';
 
 export interface SubscriptionPlan {
   id: number;
   name: string;
-  plan_type: PlanType;
   description: string | null;
-  price_monthly: number;
-  price_yearly: number;
-  max_users: number;
-  max_projects: number;
-  max_tasks_per_project: number;
-  max_storage_mb: number;
-  has_priority_support: boolean;
-  has_advanced_analytics: boolean;
-  has_custom_branding: boolean;
-  has_api_access: boolean;
+  price: number;  // Price in NPR
+  note_limit: number | null;
+  private_note_limit: number | null;
+  is_unlimited: boolean;
   is_active: boolean;
+  created_at: string;
 }
 
 export interface Subscription {
@@ -31,65 +22,46 @@ export interface Subscription {
   user: number;
   plan: SubscriptionPlan;
   plan_name: string;
-  plan_type: PlanType;
+  plan_price: number;
   status: SubscriptionStatus;
-  billing_cycle: BillingCycle;
   is_active: boolean;
-  days_remaining: number | null;
+  days_remaining: number;
+  note_limit: number | null;
+  private_note_limit: number | null;
+  is_unlimited: boolean;
   start_date: string;
-  end_date: string | null;
-  trial_end_date: string | null;
-  next_billing_date: string | null;
-  cancelled_at: string | null;
+  end_date: string;
   created_at: string;
-  updated_at: string;
   user_email?: string;
   user_name?: string;
 }
 
 export interface Payment {
   id: number;
-  subscription: number;
-  subscription_user: string;
+  user: number;
+  user_name: string;
+  plan: number;
+  plan_name: string;
   amount: number;
   currency: string;
   status: PaymentStatus;
-  payment_method: string;
+  khalti_pidx: string | null;
+  khalti_transaction_id: string | null;
+  purchase_order_id: string | null;
   description: string | null;
-  receipt_url: string | null;
   failure_reason: string | null;
   created_at: string;
 }
 
-export interface Invoice {
-  id: number;
-  subscription: number;
-  subscription_user: string;
-  invoice_number: string;
-  amount: number;
-  tax_amount: number;
-  total_amount: number;
-  currency: string;
-  status: InvoiceStatus;
-  issue_date: string;
-  due_date: string;
-  paid_date: string | null;
-  description: string | null;
-  notes: string | null;
-  created_at: string;
+export interface SubscriptionCheck {
+  has_access: boolean;
+  is_admin: boolean;
+  plan_name?: string;
+  days_remaining?: number;
 }
-
-export const PLAN_TYPE_OPTIONS: { value: PlanType; label: string }[] = [
-  { value: 'free', label: 'Free' },
-  { value: 'basic', label: 'Basic' },
-  { value: 'pro', label: 'Pro' },
-  { value: 'enterprise', label: 'Enterprise' },
-];
 
 export const SUBSCRIPTION_STATUS_OPTIONS: { value: SubscriptionStatus; label: string }[] = [
   { value: 'active', label: 'Active' },
-  { value: 'trial', label: 'Trial' },
-  { value: 'cancelled', label: 'Cancelled' },
   { value: 'expired', label: 'Expired' },
-  { value: 'past_due', label: 'Past Due' },
+  { value: 'cancelled', label: 'Cancelled' },
 ];

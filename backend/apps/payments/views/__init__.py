@@ -5,12 +5,14 @@ from .payment_views import (
     SubscriptionPlanViewSet,
     SubscriptionViewSet,
     PaymentViewSet,
-    InvoiceViewSet,
+    InitiatePaymentView,
+    verify_payment,
 )
 
 __all__ = [
     'SubscriptionPlanViewSet',
     'SubscriptionViewSet',
     'PaymentViewSet',
-    'InvoiceViewSet',
+    'InitiatePaymentView',
+    'verify_payment',
 ]

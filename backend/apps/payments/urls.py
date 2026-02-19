@@ -7,15 +7,17 @@ from apps.payments.views import (
     SubscriptionPlanViewSet,
     SubscriptionViewSet,
     PaymentViewSet,
-    InvoiceViewSet,
+    InitiatePaymentView,
+    verify_payment,
 )
 
 router = DefaultRouter()
 router.register(r'plans', SubscriptionPlanViewSet, basename='plans')
 router.register(r'subscriptions', SubscriptionViewSet, basename='subscriptions')
 router.register(r'payments', PaymentViewSet, basename='payments')
-router.register(r'invoices', InvoiceViewSet, basename='invoices')
 
 urlpatterns = [
     path('', include(router.urls)),
+    path('initiate-payment/', InitiatePaymentView.as_view(), name='initiate-payment'),
+    path('verify-payment/', verify_payment, name='verify-payment'),
 ]
