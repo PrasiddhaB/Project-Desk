@@ -13,6 +13,8 @@ urlpatterns = [
     path('api/notes/', include('apps.notes.urls')),
     path('api/support/', include('apps.support.urls')),
     path('api/notifications/', include('apps.notifications.urls')),
+    path('api/projects/', include('apps.projects.urls')),
+    path('api/billing/', include('apps.payments.urls')),
 ]
 
 if settings.DEBUG:

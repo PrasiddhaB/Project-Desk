@@ -99,6 +99,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         assignee_filter = self.request.query_params.get('assignee')
         overdue_filter = self.request.query_params.get('overdue')
         due_today_filter = self.request.query_params.get('due_today')
+        project_filter = self.request.query_params.get('project')
         
         if status_filter:
             queryset = queryset.filter(status=status_filter)
@@ -108,6 +109,9 @@ class TaskViewSet(viewsets.ModelViewSet):
         
         if assignee_filter and user.role == 'admin':
             queryset = queryset.filter(assigned_to__id=assignee_filter)
+        
+        if project_filter:
+            queryset = queryset.filter(project_id=project_filter)
         
         if overdue_filter == 'true':
             today = timezone.now().date()

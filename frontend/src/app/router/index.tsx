@@ -40,6 +40,13 @@ import {
   EmployeeFormPage,
 } from '@/features/employees/pages';
 
+// Projects
+import {
+  ProjectsPage,
+  ProjectDetailPage,
+  ProjectFormPage,
+} from '@/features/projects/pages';
+
 // Support
 import {
   ContactSupportPage,
@@ -47,6 +54,9 @@ import {
   TicketDetailPage,
   AllTicketsPage,
 } from '@/features/support/pages';
+
+// Billing
+import { BillingPage } from '@/features/billing/pages';
 
 // Notifications
 import { NotificationsPage } from '@/features/notifications/pages';
@@ -245,6 +255,29 @@ export const router = createBrowserRouter([
         ],
       },
 
+      // Projects (All users can view, Admin can manage)
+      {
+        path: '/projects',
+        element: <ProjectsPage />,
+      },
+      {
+        path: '/projects/:id',
+        element: <ProjectDetailPage />,
+      },
+      {
+        element: <AdminRoute />,
+        children: [
+          {
+            path: '/projects/create',
+            element: <ProjectFormPage />,
+          },
+          {
+            path: '/projects/:id/edit',
+            element: <ProjectFormPage />,
+          },
+        ],
+      },
+
       // Support - Contact (Employee creates ticket)
       {
         path: '/support',
@@ -268,6 +301,12 @@ export const router = createBrowserRouter([
             element: <AllTicketsPage />,
           },
         ],
+      },
+
+      // Billing (All Users)
+      {
+        path: '/billing',
+        element: <BillingPage />,
       },
 
       // Notifications (All Users)

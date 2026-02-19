@@ -26,6 +26,8 @@ export interface Task {
   status: TaskStatus;
   priority: TaskPriority;
   due_date: string | null;
+  project?: number | null;
+  project_name?: string | null;
   created_by: TaskCreator;
   created_by_name?: string;
   assigned_to: TaskAssignee[];
@@ -42,6 +44,7 @@ export interface TaskFormData {
   priority: TaskPriority;
   due_date: string;
   assigned_to_ids: number[];
+  project_id?: number | null;
 }
 
 export interface TaskStats {

@@ -47,13 +47,14 @@ class TaskListSerializer(serializers.ModelSerializer):
     created_by_name = serializers.CharField(source='created_by.full_name', read_only=True)
     is_overdue = serializers.BooleanField(read_only=True)
     assignee_count = serializers.IntegerField(read_only=True)
+    project_name = serializers.CharField(read_only=True)
     
     class Meta:
         model = Task
         fields = [
             'id', 'title', 'status', 'priority', 'due_date',
-            'created_by_name', 'assigned_to', 'is_overdue',
-            'assignee_count', 'created_at'
+            'project', 'project_name', 'created_by_name', 'assigned_to', 
+            'is_overdue', 'assignee_count', 'created_at'
         ]
 
 
@@ -64,13 +65,15 @@ class TaskDetailSerializer(serializers.ModelSerializer):
     created_by = CreatorSerializer(read_only=True)
     is_overdue = serializers.BooleanField(read_only=True)
     assignee_count = serializers.IntegerField(read_only=True)
+    project_name = serializers.CharField(read_only=True)
     
     class Meta:
         model = Task
         fields = [
             'id', 'title', 'description', 'status', 'priority',
-            'due_date', 'created_by', 'assigned_to', 'is_overdue',
-            'assignee_count', 'created_at', 'updated_at'
+            'due_date', 'project', 'project_name', 'created_by', 
+            'assigned_to', 'is_overdue', 'assignee_count', 
+            'created_at', 'updated_at'
         ]
 
 
@@ -83,12 +86,13 @@ class TaskCreateSerializer(serializers.ModelSerializer):
         required=False,
         default=[]
     )
+    project_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
     
     class Meta:
         model = Task
         fields = [
             'title', 'description', 'status', 'priority',
-            'due_date', 'assigned_to_ids'
+            'due_date', 'assigned_to_ids', 'project_id'
         ]
     
     def validate_due_date(self, value):
@@ -108,12 +112,26 @@ class TaskCreateSerializer(serializers.ModelSerializer):
                 )
         return value
     
+    def validate_project_id(self, value):
+        """Validate project exists."""
+        if value:
+            from apps.projects.models import Project
+            if not Project.objects.filter(id=value).exists():
+                raise serializers.ValidationError('Project not found.')
+        return value
+    
     def create(self, validated_data):
-        """Create task with assignees."""
+        """Create task with assignees and project."""
         assigned_to_ids = validated_data.pop('assigned_to_ids', [])
+        project_id = validated_data.pop('project_id', None)
         
         # Set created_by from request user
         validated_data['created_by'] = self.context['request'].user
+        
+        # Set project if provided
+        if project_id:
+            from apps.projects.models import Project
+            validated_data['project'] = Project.objects.get(id=project_id)
         
         task = Task.objects.create(**validated_data)
         
@@ -132,12 +150,13 @@ class TaskUpdateSerializer(serializers.ModelSerializer):
         write_only=True,
         required=False
     )
+    project_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
     
     class Meta:
         model = Task
         fields = [
             'title', 'description', 'status', 'priority',
-            'due_date', 'assigned_to_ids'
+            'due_date', 'assigned_to_ids', 'project_id'
         ]
     
     def validate_assigned_to_ids(self, value):
@@ -151,9 +170,23 @@ class TaskUpdateSerializer(serializers.ModelSerializer):
                 )
         return value
     
+    def validate_project_id(self, value):
+        """Validate project exists."""
+        if value:
+            from apps.projects.models import Project
+            if not Project.objects.filter(id=value).exists():
+                raise serializers.ValidationError('Project not found.')
+        return value
+    
     def update(self, instance, validated_data):
-        """Update task with assignees."""
+        """Update task with assignees and project."""
         assigned_to_ids = validated_data.pop('assigned_to_ids', None)
+        project_id = validated_data.pop('project_id', None)
+        
+        # Update project if provided
+        if project_id is not None:
+            from apps.projects.models import Project
+            instance.project = Project.objects.get(id=project_id) if project_id else None
         
         # Update task fields
         for attr, value in validated_data.items():

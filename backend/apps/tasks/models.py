@@ -36,6 +36,15 @@ class Task(models.Model):
     )
     due_date = models.DateField(blank=True, null=True)
     
+    # Project relationship (Task belongs to a Project)
+    project = models.ForeignKey(
+        'projects.Project',
+        on_delete=models.CASCADE,
+        related_name='tasks',
+        null=True,
+        blank=True
+    )
+    
     # Relationships
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -85,6 +94,11 @@ class Task(models.Model):
     def assignee_count(self):
         """Get number of assignees."""
         return self.assigned_to.count()
+    
+    @property
+    def project_name(self):
+        """Get project name."""
+        return self.project.name if self.project else None
     
     @classmethod
     def get_priority_order(cls):
