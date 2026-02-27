@@ -246,3 +246,67 @@ class NoteViewSet(viewsets.ModelViewSet):
         return Response({
             'message': 'Share removed successfully'
         })
+    
+    @action(detail=False, methods=['get'], url_path='calendar')
+    def calendar_events(self, request):
+        """
+        Get notes as calendar events (based on created_at date).
+        Query params:
+        - start_date: YYYY-MM-DD
+        - end_date: YYYY-MM-DD
+        """
+        from datetime import datetime
+        
+        user = request.user
+        
+        # Get user's notes + shared notes
+        queryset = Note.objects.filter(
+            Q(user=user) | Q(shares__shared_with=user)
+        ).distinct().select_related('user')
+        
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+        
+        # Filter by date range if provided
+        if start_date:
+            try:
+                start = datetime.strptime(start_date, '%Y-%m-%d')
+                queryset = queryset.filter(created_at__date__gte=start)
+            except ValueError:
+                pass
+        
+        if end_date:
+            try:
+                end = datetime.strptime(end_date, '%Y-%m-%d')
+                queryset = queryset.filter(created_at__date__lte=end)
+            except ValueError:
+                pass
+        
+        # Format as calendar events
+        events = []
+        for note in queryset:
+            color = '#8b5cf6'  # purple for notes
+            if note.status == 'completed':
+                color = '#10b981'  # green
+            elif note.is_private:
+                color = '#6366f1'  # indigo
+            elif note.pinned:
+                color = '#f59e0b'  # amber
+            
+            events.append({
+                'id': f'note-{note.id}',
+                'title': note.title,
+                'date': note.created_at.date().isoformat(),
+                'type': 'note',
+                'status': note.status,
+                'is_private': note.is_private,
+                'pinned': note.pinned,
+                'color': color,
+                'owner': note.user.full_name,
+                'url': f'/notes/{note.id}',
+            })
+        
+        return Response({
+            'count': len(events),
+            'events': events
+        })
