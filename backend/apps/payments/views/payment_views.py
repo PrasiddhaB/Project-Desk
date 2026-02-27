@@ -1,6 +1,7 @@
 """
 Payment API views with Khalti integration.
 """
+import os
 import requests
 import json
 import uuid
@@ -27,19 +28,59 @@ from apps.payments.serializers import (
 
 
 # Khalti API Configuration
-KHALTI_SECRET_KEY = '5bf2afad915247d1a28055fb7aaee102'  # Test key
-KHALTI_API_URL = 'https://dev.khalti.com/api/v2/epayment/initiate/'
-KHALTI_LOOKUP_URL = 'https://dev.khalti.com/api/v2/epayment/lookup/'
+# In production, set KHALTI_SECRET_KEY and KHALTI_ENV in your .env file
+KHALTI_SECRET_KEY = getattr(settings, 'KHALTI_SECRET_KEY', None) or os.environ.get('KHALTI_SECRET_KEY', '5bf2afad915247d1a28055fb7aaee102')
+KHALTI_ENV = getattr(settings, 'KHALTI_ENV', None) or os.environ.get('KHALTI_ENV', 'dev')
+
+# Use test or live URLs based on environment
+if KHALTI_ENV == 'live':
+    KHALTI_API_URL = 'https://khalti.com/api/v2/epayment/initiate/'
+    KHALTI_LOOKUP_URL = 'https://khalti.com/api/v2/epayment/lookup/'
+else:
+    KHALTI_API_URL = 'https://dev.khalti.com/api/v2/epayment/initiate/'
+    KHALTI_LOOKUP_URL = 'https://dev.khalti.com/api/v2/epayment/lookup/'
 
 
-class SubscriptionPlanViewSet(viewsets.ReadOnlyModelViewSet):
+class SubscriptionPlanViewSet(viewsets.ModelViewSet):
     """ViewSet for subscription plans."""
     queryset = SubscriptionPlan.objects.filter(is_active=True)
     serializer_class = SubscriptionPlanSerializer
     permission_classes = [AllowAny]
+    
+    def get_queryset(self):
+        # Regular users see only active plans
+        if self.request.user.is_authenticated and self.request.user.role == 'admin':
+            return SubscriptionPlan.objects.all()
+        return SubscriptionPlan.objects.filter(is_active=True)
+    
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            return [IsAuthenticated()]
+        return [AllowAny()]
+    
+    def create(self, request, *args, **kwargs):
+        if request.user.role != 'admin':
+            return Response({
+                'message': 'Admin access required'
+            }, status=status.HTTP_403_FORBIDDEN)
+        return super().create(request, *args, **kwargs)
+    
+    def update(self, request, *args, **kwargs):
+        if request.user.role != 'admin':
+            return Response({
+                'message': 'Admin access required'
+            }, status=status.HTTP_403_FORBIDDEN)
+        return super().update(request, *args, **kwargs)
+    
+    def destroy(self, request, *args, **kwargs):
+        if request.user.role != 'admin':
+            return Response({
+                'message': 'Admin access required'
+            }, status=status.HTTP_403_FORBIDDEN)
+        return super().destroy(request, *args, **kwargs)
 
 
-class SubscriptionViewSet(viewsets.ReadOnlyModelViewSet):
+class SubscriptionViewSet(viewsets.ModelViewSet):
     """ViewSet for user subscriptions."""
     permission_classes = [IsAuthenticated]
     serializer_class = SubscriptionSerializer
@@ -49,6 +90,97 @@ class SubscriptionViewSet(viewsets.ReadOnlyModelViewSet):
         if user.role == 'admin':
             return Subscription.objects.select_related('plan', 'user').all()
         return Subscription.objects.filter(user=user).select_related('plan')
+    
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            return [IsAuthenticated()]
+        return [IsAuthenticated()]
+    
+    def create(self, request, *args, **kwargs):
+        """Admin can create subscription for any user."""
+        if request.user.role != 'admin':
+            return Response({
+                'message': 'Admin access required'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        user_id = request.data.get('user_id')
+        plan_id = request.data.get('plan_id')
+        days = request.data.get('days', 30)
+        
+        if not user_id or not plan_id:
+            return Response({
+                'message': 'user_id and plan_id required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        from apps.accounts.models import User
+        try:
+            user = User.objects.get(id=user_id)
+            plan = SubscriptionPlan.objects.get(id=plan_id)
+        except (User.DoesNotExist, SubscriptionPlan.DoesNotExist):
+            return Response({
+                'message': 'User or Plan not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        subscription, created = Subscription.objects.update_or_create(
+            user=user,
+            defaults={
+                'plan': plan,
+                'status': 'active',
+                'start_date': timezone.now().date(),
+                'end_date': timezone.now().date() + timedelta(days=days)
+            }
+        )
+        
+        serializer = SubscriptionDetailSerializer(subscription)
+        return Response({
+            'message': 'Subscription created' if created else 'Subscription updated',
+            'data': serializer.data
+        }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+    
+    def update(self, request, *args, **kwargs):
+        """Admin can update subscription."""
+        if request.user.role != 'admin':
+            return Response({
+                'message': 'Admin access required'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        instance = self.get_object()
+        data = request.data
+        
+        if 'plan_id' in data:
+            try:
+                instance.plan = SubscriptionPlan.objects.get(id=data['plan_id'])
+            except SubscriptionPlan.DoesNotExist:
+                return Response({'message': 'Plan not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        if 'status' in data:
+            instance.status = data['status']
+        
+        if 'end_date' in data:
+            instance.end_date = data['end_date']
+        
+        instance.save()
+        
+        serializer = SubscriptionDetailSerializer(instance)
+        return Response({
+            'message': 'Subscription updated',
+            'data': serializer.data
+        })
+    
+    def destroy(self, request, *args, **kwargs):
+        """Admin can cancel subscription."""
+        if request.user.role != 'admin':
+            return Response({
+                'message': 'Admin access required'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        instance = self.get_object()
+        instance.status = 'cancelled'
+        instance.save()
+        
+        return Response({
+            'message': 'Subscription cancelled'
+        })
     
     @action(detail=False, methods=['get'], url_path='my-subscription')
     def my_subscription(self, request):
@@ -269,8 +401,8 @@ def verify_payment(request):
     purchase_order_id = request.GET.get('purchase_order_id')
     merchant_extra = request.GET.get('merchant_extra')
     
-    # Frontend URL for redirects
-    frontend_url = 'http://localhost:5173'  # Change in production
+    # Frontend URL for redirects - use environment variable
+    frontend_url = os.environ.get('FRONTEND_URL', 'http://localhost:5173')
     
     if not pidx:
         return redirect(f'{frontend_url}/billing?payment_status=error&error=Missing payment ID')

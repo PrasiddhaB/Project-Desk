@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     'apps.notifications',
     'apps.projects',
     'apps.payments',
+    'apps.calendar',
 ]
 
 MIDDLEWARE = [
@@ -159,3 +160,11 @@ CORS_ALLOWED_ORIGINS = [
 ]
 
 CORS_ALLOW_CREDENTIALS = True
+
+# Khalti Payment Gateway Settings
+# For production, set KHALTI_SECRET_KEY and KHALTI_ENV=live in .env
+KHALTI_SECRET_KEY = os.environ.get('KHALTI_SECRET_KEY', '5bf2afad915247d1a28055fb7aaee102')
+KHALTI_ENV = os.environ.get('KHALTI_ENV', 'dev')  # 'dev' or 'live'
+
+# Frontend URL (for payment redirects)
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173')
