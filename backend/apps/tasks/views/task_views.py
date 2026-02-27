@@ -312,3 +312,79 @@ class TaskViewSet(viewsets.ModelViewSet):
             'count': due_today.count(),
             'data': serializer.data
         })
+    
+    @action(detail=False, methods=['get'], url_path='calendar')
+    def calendar_events(self, request):
+        """
+        Get tasks as calendar events.
+        Query params:
+        - start_date: YYYY-MM-DD
+        - end_date: YYYY-MM-DD
+        """
+        from datetime import datetime
+        
+        user = request.user
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+        
+        if user.role == 'admin':
+            queryset = Task.objects.all()
+        else:
+            queryset = Task.objects.filter(assigned_to=user)
+        
+        # Filter by date range if provided
+        if start_date:
+            try:
+                start = datetime.strptime(start_date, '%Y-%m-%d').date()
+                queryset = queryset.filter(due_date__gte=start)
+            except ValueError:
+                pass
+        
+        if end_date:
+            try:
+                end = datetime.strptime(end_date, '%Y-%m-%d').date()
+                queryset = queryset.filter(due_date__lte=end)
+            except ValueError:
+                pass
+        
+        # Only include tasks with due dates
+        queryset = queryset.filter(due_date__isnull=False).select_related(
+            'created_by', 'project'
+        ).prefetch_related('assigned_to')
+        
+        # Format as calendar events
+        events = []
+        for task in queryset:
+            color = '#6b7280'  # gray default
+            if task.status == 'completed':
+                color = '#10b981'  # green
+            elif task.is_overdue:
+                color = '#ef4444'  # red
+            elif task.priority == 'urgent':
+                color = '#f59e0b'  # orange
+            elif task.priority == 'high':
+                color = '#f97316'  # orange-red
+            elif task.status == 'in_progress':
+                color = '#3b82f6'  # blue
+            
+            events.append({
+                'id': f'task-{task.id}',
+                'title': task.title,
+                'date': task.due_date.isoformat(),
+                'type': 'task',
+                'status': task.status,
+                'priority': task.priority,
+                'color': color,
+                'project_id': task.project_id,
+                'project_name': task.project_name,
+                'assignees': [
+                    {'id': u.id, 'name': u.full_name}
+                    for u in task.assigned_to.all()
+                ],
+                'url': f'/tasks/{task.id}',
+            })
+        
+        return Response({
+            'count': len(events),
+            'events': events
+        })
