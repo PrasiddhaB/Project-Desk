@@ -11,4 +11,5 @@ export { Dropdown } from './Dropdown';
 export { EmptyState } from './EmptyState';
 export { Input } from './Input';
 export { Modal } from './Modal';
+export { RichTextEditor } from './RichTextEditor';
 export { Tabs } from './Tabs';

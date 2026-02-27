@@ -1,6 +1,7 @@
 /**
  * Task Form Page - Create and Edit tasks
  * Dynamic - connects to backend API
+ * Includes project assignment with checkbox toggle
  */
 
 import React, { useState, useEffect } from 'react';
@@ -8,8 +9,9 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { AppLayout } from '@/components/layout';
 import { Card, Button, Input } from '@/components/ui';
 import { taskApi } from '@/services/tasks';
+import { projectApi } from '@/services/projects';
 import client from '@/services/http/client';
-import { Task, TaskStatus, TaskPriority, STATUS_OPTIONS, PRIORITY_OPTIONS } from '@/types';
+import { Task, TaskStatus, TaskPriority, STATUS_OPTIONS, PRIORITY_OPTIONS, Project } from '@/types';
 
 interface UserOption {
   id: number;
@@ -27,6 +29,7 @@ export const TaskFormPage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [users, setUsers] = useState<UserOption[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
 
   // Form data
   const [formData, setFormData] = useState({
@@ -36,7 +39,11 @@ export const TaskFormPage: React.FC = () => {
     priority: 'medium' as TaskPriority,
     due_date: '',
     assigned_to_ids: [] as number[],
+    project_id: null as number | null,
   });
+
+  // Project assignment toggle
+  const [assignToProject, setAssignToProject] = useState(false);
 
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -47,6 +54,16 @@ export const TaskFormPage: React.FC = () => {
       setUsers(response.data.data || response.data || []);
     } catch (err) {
       console.error('Error fetching users:', err);
+    }
+  };
+
+  // Fetch projects
+  const fetchProjects = async () => {
+    try {
+      const data = await projectApi.getProjects();
+      setProjects(data);
+    } catch (err) {
+      console.error('Error fetching projects:', err);
     }
   };
 
@@ -62,7 +79,12 @@ export const TaskFormPage: React.FC = () => {
         priority: task.priority,
         due_date: task.due_date || '',
         assigned_to_ids: task.assigned_to.map(u => u.id),
+        project_id: task.project || null,
       });
+      // If task has a project, enable the toggle
+      if (task.project) {
+        setAssignToProject(true);
+      }
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to load task');
     } finally {
@@ -72,10 +94,19 @@ export const TaskFormPage: React.FC = () => {
 
   useEffect(() => {
     fetchUsers();
+    fetchProjects();
     if (isEditMode) {
       fetchTask();
     }
   }, [id]);
+
+  // Handle project toggle
+  const handleProjectToggle = (checked: boolean) => {
+    setAssignToProject(checked);
+    if (!checked) {
+      setFormData(prev => ({ ...prev, project_id: null }));
+    }
+  };
 
   // Validate form
   const validateForm = (): boolean => {
@@ -83,6 +114,10 @@ export const TaskFormPage: React.FC = () => {
 
     if (!formData.title.trim()) {
       newErrors.title = 'Title is required';
+    }
+
+    if (assignToProject && !formData.project_id) {
+      newErrors.project = 'Please select a project or uncheck "Assign to Project"';
     }
 
     setErrors(newErrors);
@@ -101,6 +136,7 @@ export const TaskFormPage: React.FC = () => {
       const payload = {
         ...formData,
         due_date: formData.due_date || null,
+        project_id: assignToProject ? formData.project_id : null,
       };
 
       if (isEditMode) {
@@ -253,6 +289,80 @@ export const TaskFormPage: React.FC = () => {
                     />
                   </div>
                 </div>
+              </Card>
+
+              {/* Project Assignment Card */}
+              <Card className="border-0 shadow-sm mt-6">
+                <h2 className="text-lg font-semibold text-gray-800 mb-4">Project Assignment</h2>
+                
+                {/* Checkbox: Assign to Project */}
+                <label className={`flex items-center gap-3 p-4 rounded-lg cursor-pointer transition-colors ${
+                  assignToProject 
+                    ? 'bg-primary-50 border-2 border-primary-500' 
+                    : 'bg-gray-50 border-2 border-transparent hover:bg-gray-100'
+                }`}>
+                  <input
+                    type="checkbox"
+                    checked={assignToProject}
+                    onChange={e => handleProjectToggle(e.target.checked)}
+                    className="w-5 h-5 text-primary-500 rounded focus:ring-primary-500"
+                  />
+                  <div className="flex-1">
+                    <p className="font-medium text-gray-800">Assign to Project</p>
+                    <p className="text-sm text-gray-500">
+                      Link this task to an existing project for better organization
+                    </p>
+                  </div>
+                  <svg className={`w-6 h-6 ${assignToProject ? 'text-primary-500' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                  </svg>
+                </label>
+
+                {/* Project Dropdown (shown when checkbox is checked) */}
+                {assignToProject && (
+                  <div className="mt-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Select Project *
+                    </label>
+                    <select
+                      value={formData.project_id || ''}
+                      onChange={e => setFormData(prev => ({ 
+                        ...prev, 
+                        project_id: e.target.value ? Number(e.target.value) : null 
+                      }))}
+                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 ${
+                        errors.project ? 'border-red-500' : 'border-gray-300'
+                      }`}
+                    >
+                      <option value="">-- Select a Project --</option>
+                      {projects.map(project => (
+                        <option key={project.id} value={project.id}>
+                          {project.name} ({project.status})
+                        </option>
+                      ))}
+                    </select>
+                    {errors.project && (
+                      <p className="text-red-500 text-sm mt-1">{errors.project}</p>
+                    )}
+                    {projects.length === 0 && (
+                      <p className="text-gray-500 text-sm mt-1">
+                        No projects available. <Link to="/projects/create" className="text-primary-500 hover:underline">Create one</Link>
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Independent Task Info */}
+                {!assignToProject && (
+                  <div className="mt-4 p-3 bg-gray-100 rounded-lg">
+                    <div className="flex items-center gap-2 text-gray-600">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <span className="text-sm">This task will be created as an <strong>Independent Task</strong> (not linked to any project)</span>
+                    </div>
+                  </div>
+                )}
               </Card>
             </div>
 

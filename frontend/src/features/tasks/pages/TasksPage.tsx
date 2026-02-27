@@ -1,6 +1,6 @@
 /**
- * Tasks Page - Admin view for all tasks management
- * Dynamic - connects to backend API
+ * Tasks Page - Admin view with Table + Kanban toggle
+ * Includes drag and drop functionality
  */
 
 import React, { useState, useEffect } from 'react';
@@ -11,6 +11,8 @@ import { StatusBadge, PriorityBadge } from '@/components/tasks';
 import { taskApi } from '@/services/tasks';
 import { Task, TaskStatus, TaskPriority, STATUS_OPTIONS, PRIORITY_OPTIONS } from '@/types';
 
+type ViewMode = 'table' | 'kanban';
+
 export const TasksPage: React.FC = () => {
   const navigate = useNavigate();
   
@@ -18,6 +20,9 @@ export const TasksPage: React.FC = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>('table');
+  const [draggedTask, setDraggedTask] = useState<Task | null>(null);
+  const [updatingTaskId, setUpdatingTaskId] = useState<number | null>(null);
   
   // Filters
   const [statusFilter, setStatusFilter] = useState<TaskStatus | ''>('');
@@ -69,6 +74,46 @@ export const TasksPage: React.FC = () => {
     }
   };
 
+  // Update task status (for drag & drop)
+  const handleStatusUpdate = async (taskId: number, newStatus: TaskStatus) => {
+    try {
+      setUpdatingTaskId(taskId);
+      await taskApi.updateTaskStatus(taskId, newStatus);
+      
+      // Update local state
+      setTasks(prev => prev.map(task => 
+        task.id === taskId ? { ...task, status: newStatus } : task
+      ));
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Failed to update task status');
+    } finally {
+      setUpdatingTaskId(null);
+    }
+  };
+
+  // Drag and Drop handlers
+  const handleDragStart = (e: React.DragEvent, task: Task) => {
+    setDraggedTask(task);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleDrop = (e: React.DragEvent, newStatus: TaskStatus) => {
+    e.preventDefault();
+    if (draggedTask && draggedTask.status !== newStatus) {
+      handleStatusUpdate(draggedTask.id, newStatus);
+    }
+    setDraggedTask(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedTask(null);
+  };
+
   const formatDate = (dateString: string | null) => {
     if (!dateString) return '-';
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -77,6 +122,105 @@ export const TasksPage: React.FC = () => {
       year: 'numeric',
     });
   };
+
+  // Group tasks by status for Kanban
+  const pendingTasks = tasks.filter(t => t.status === 'pending');
+  const inProgressTasks = tasks.filter(t => t.status === 'in_progress');
+  const completedTasks = tasks.filter(t => t.status === 'completed');
+
+  // Kanban Card Component
+  const KanbanCard: React.FC<{ task: Task }> = ({ task }) => (
+    <div
+      draggable
+      onDragStart={(e) => handleDragStart(e, task)}
+      onDragEnd={handleDragEnd}
+      className={`bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-3 cursor-move hover:shadow-md transition-shadow ${
+        updatingTaskId === task.id ? 'opacity-50' : ''
+      } ${draggedTask?.id === task.id ? 'opacity-50 border-dashed' : ''}`}
+    >
+      <Link to={`/tasks/${task.id}`} className="block">
+        <h4 className="font-medium text-gray-800 mb-2 hover:text-primary-500">
+          {task.title}
+        </h4>
+      </Link>
+      
+      <div className="flex items-center gap-2 mb-3">
+        <PriorityBadge priority={task.priority} />
+        {task.is_overdue && <Badge variant="danger" size="sm">Overdue</Badge>}
+      </div>
+      
+      {task.due_date && (
+        <div className="flex items-center gap-1 text-xs text-gray-500 mb-3">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+          <span>Due: {formatDate(task.due_date)}</span>
+        </div>
+      )}
+
+      {/* Assignees */}
+      {task.assigned_to.length > 0 && (
+        <div className="flex items-center justify-between pt-3 border-t border-gray-100">
+          <div className="flex -space-x-2">
+            {task.assigned_to.slice(0, 3).map(user => (
+              <Avatar key={user.id} name={user.full_name} size="xs" />
+            ))}
+            {task.assigned_to.length > 3 && (
+              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-gray-200 text-xs text-gray-600">
+                +{task.assigned_to.length - 3}
+              </span>
+            )}
+          </div>
+          <div className="flex gap-1">
+            <Link
+              to={`/tasks/${task.id}/edit`}
+              className="p-1 text-gray-400 hover:text-blue-500"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+            </Link>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  // Kanban Column Component
+  const KanbanColumn: React.FC<{
+    title: string;
+    status: TaskStatus;
+    count: number;
+    tasks: Task[];
+    color: string;
+  }> = ({ title, status, count, tasks: columnTasks, color }) => (
+    <div className="flex-1 min-w-[320px]">
+      <div className={`rounded-t-lg px-4 py-3 ${color}`}>
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-white">{title}</h3>
+          <span className="bg-white/20 text-white text-sm px-2 py-0.5 rounded-full">
+            {count}
+          </span>
+        </div>
+      </div>
+      <div 
+        className={`bg-gray-100 rounded-b-lg p-3 min-h-[500px] transition-colors ${
+          draggedTask && draggedTask.status !== status ? 'bg-gray-200 border-2 border-dashed border-gray-400' : ''
+        }`}
+        onDragOver={handleDragOver}
+        onDrop={(e) => handleDrop(e, status)}
+      >
+        {columnTasks.length > 0 ? (
+          columnTasks.map(task => <KanbanCard key={task.id} task={task} />)
+        ) : (
+          <div className="text-center py-8 text-gray-400 text-sm">
+            {draggedTask ? 'Drop here' : 'No tasks'}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 
   return (
     <AppLayout>
@@ -95,7 +239,7 @@ export const TasksPage: React.FC = () => {
           </Button>
         </div>
 
-        {/* Filters */}
+        {/* Filters & View Toggle */}
         <Card className="border-0 shadow-sm mb-6">
           <div className="flex flex-wrap items-center gap-4">
             {/* Search */}
@@ -138,6 +282,36 @@ export const TasksPage: React.FC = () => {
               ))}
             </select>
 
+            {/* View Toggle */}
+            <div className="flex bg-gray-100 rounded-lg p-1">
+              <button
+                onClick={() => setViewMode('table')}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  viewMode === 'table' 
+                    ? 'bg-white text-gray-800 shadow-sm' 
+                    : 'text-gray-600 hover:text-gray-800'
+                }`}
+              >
+                <svg className="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+                </svg>
+                Table
+              </button>
+              <button
+                onClick={() => setViewMode('kanban')}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  viewMode === 'kanban' 
+                    ? 'bg-white text-gray-800 shadow-sm' 
+                    : 'text-gray-600 hover:text-gray-800'
+                }`}
+              >
+                <svg className="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
+                </svg>
+                Kanban
+              </button>
+            </div>
+
             {/* Refresh */}
             <Button variant="outline" onClick={fetchTasks}>
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -162,8 +336,8 @@ export const TasksPage: React.FC = () => {
               <p className="text-gray-500">Loading tasks...</p>
             </div>
           </Card>
-        ) : (
-          /* Tasks Table */
+        ) : viewMode === 'table' ? (
+          /* TABLE VIEW */
           <Card className="border-0 shadow-sm overflow-hidden">
             {tasks.length > 0 ? (
               <div className="overflow-x-auto">
@@ -175,6 +349,7 @@ export const TasksPage: React.FC = () => {
                       <th className="text-left py-3 px-4 font-semibold text-gray-600">Priority</th>
                       <th className="text-left py-3 px-4 font-semibold text-gray-600">Due Date</th>
                       <th className="text-left py-3 px-4 font-semibold text-gray-600">Assignees</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-600">Project</th>
                       <th className="text-right py-3 px-4 font-semibold text-gray-600">Actions</th>
                     </tr>
                   </thead>
@@ -209,6 +384,11 @@ export const TasksPage: React.FC = () => {
                               </span>
                             )}
                           </div>
+                        </td>
+                        <td className="py-3 px-4 text-gray-600">
+                          {task.project_name || (
+                            <span className="text-gray-400 italic">Independent</span>
+                          )}
                         </td>
                         <td className="py-3 px-4 text-right">
                           <div className="flex items-center justify-end gap-2">
@@ -258,6 +438,31 @@ export const TasksPage: React.FC = () => {
               </div>
             )}
           </Card>
+        ) : (
+          /* KANBAN VIEW */
+          <div className="flex gap-6 overflow-x-auto pb-4">
+            <KanbanColumn
+              title="Pending"
+              status="pending"
+              count={pendingTasks.length}
+              tasks={pendingTasks}
+              color="bg-gray-500"
+            />
+            <KanbanColumn
+              title="In Progress"
+              status="in_progress"
+              count={inProgressTasks.length}
+              tasks={inProgressTasks}
+              color="bg-blue-500"
+            />
+            <KanbanColumn
+              title="Completed"
+              status="completed"
+              count={completedTasks.length}
+              tasks={completedTasks}
+              color="bg-green-500"
+            />
+          </div>
         )}
       </div>
     </AppLayout>

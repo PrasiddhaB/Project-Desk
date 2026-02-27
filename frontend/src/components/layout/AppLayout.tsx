@@ -7,7 +7,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/app/providers/AuthProvider';
 import { Avatar } from '@/components/ui';
 import { NotificationDropdown } from '@/components/notifications';
-import { getNotificationsByUserId, getUnreadCount } from '@/mock/notifications';
+import { notificationApi } from '@/services/notifications';
 import { Notification } from '@/types';
 
 interface AppLayoutProps {
@@ -159,6 +159,26 @@ const navSections: NavSection[] = [
         ),
       },
       {
+        name: 'Manage Plans',
+        href: '/admin/plans',
+        adminOnly: true,
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+        ),
+      },
+      {
+        name: 'Subscriptions',
+        href: '/admin/subscriptions',
+        adminOnly: true,
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+          </svg>
+        ),
+      },
+      {
         name: 'Billing',
         href: '/billing',
         employeeOnly: true,
@@ -197,12 +217,26 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
 
   const isAdmin = user?.role === 'admin';
 
-  // Load notifications
+  // Load notifications from real API
+  const loadNotifications = async () => {
+    try {
+      const [notifs, count] = await Promise.all([
+        notificationApi.getNotifications(),
+        notificationApi.getUnreadCount(),
+      ]);
+      setNotifications(notifs);
+      setUnreadCount(count);
+    } catch (err) {
+      console.error('Failed to load notifications:', err);
+    }
+  };
+
   useEffect(() => {
     if (user) {
-      const userNotifications = getNotificationsByUserId(user.id);
-      setNotifications(userNotifications);
-      setUnreadCount(getUnreadCount(user.id));
+      loadNotifications();
+      // Refresh notifications every 30 seconds
+      const interval = setInterval(loadNotifications, 30000);
+      return () => clearInterval(interval);
     }
   }, [user]);
 
@@ -223,10 +257,14 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     navigate('/login');
   };
 
-  const handleMarkAllRead = () => {
-    // Mock: mark all as read
-    setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
-    setUnreadCount(0);
+  const handleMarkAllRead = async () => {
+    try {
+      await notificationApi.markAllAsRead();
+      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+      setUnreadCount(0);
+    } catch (err) {
+      console.error('Failed to mark all as read:', err);
+    }
   };
 
   const isActiveRoute = (href: string) => {

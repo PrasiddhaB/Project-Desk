@@ -1,14 +1,166 @@
 /**
  * Note Form Page - Create and Edit notes
  * Dynamic - connects to backend API
+ * Includes Rich Text Editor with Bold/Italic/Underline
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { AppLayout } from '@/components/layout';
 import { Card, Button, Input } from '@/components/ui';
 import { noteApi } from '@/services/notes';
 import { NoteStatus, NOTE_STATUS_OPTIONS } from '@/types';
+
+// Rich Text Editor Component
+const RichTextEditor: React.FC<{
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}> = ({ value, onChange, placeholder }) => {
+  const editorRef = useRef<HTMLDivElement>(null);
+  const [isFocused, setIsFocused] = useState(false);
+
+  useEffect(() => {
+    if (editorRef.current && editorRef.current.innerHTML !== value) {
+      editorRef.current.innerHTML = value;
+    }
+  }, []);
+
+  const handleInput = () => {
+    if (editorRef.current) {
+      onChange(editorRef.current.innerHTML);
+    }
+  };
+
+  const execCommand = (command: string, value: string | undefined = undefined) => {
+    document.execCommand(command, false, value);
+    editorRef.current?.focus();
+    handleInput();
+  };
+
+  const isActive = (command: string): boolean => {
+    return document.queryCommandState(command);
+  };
+
+  return (
+    <div className="border border-gray-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-primary-500">
+      {/* Toolbar */}
+      <div className="flex items-center gap-1 p-2 bg-gray-50 border-b border-gray-200">
+        <button
+          type="button"
+          onClick={() => execCommand('bold')}
+          className={`p-2 rounded hover:bg-gray-200 transition-colors ${
+            isActive('bold') ? 'bg-gray-200 text-primary-600' : 'text-gray-600'
+          }`}
+          title="Bold (Ctrl+B)"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 24 24">
+            <path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"></path>
+            <path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"></path>
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={() => execCommand('italic')}
+          className={`p-2 rounded hover:bg-gray-200 transition-colors ${
+            isActive('italic') ? 'bg-gray-200 text-primary-600' : 'text-gray-600'
+          }`}
+          title="Italic (Ctrl+I)"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <line x1="19" y1="4" x2="10" y2="4"></line>
+            <line x1="14" y1="20" x2="5" y2="20"></line>
+            <line x1="15" y1="4" x2="9" y2="20"></line>
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={() => execCommand('underline')}
+          className={`p-2 rounded hover:bg-gray-200 transition-colors ${
+            isActive('underline') ? 'bg-gray-200 text-primary-600' : 'text-gray-600'
+          }`}
+          title="Underline (Ctrl+U)"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path d="M6 3v7a6 6 0 0 0 6 6 6 6 0 0 0 6-6V3"></path>
+            <line x1="4" y1="21" x2="20" y2="21"></line>
+          </svg>
+        </button>
+        <div className="w-px h-6 bg-gray-300 mx-1"></div>
+        <button
+          type="button"
+          onClick={() => execCommand('strikeThrough')}
+          className={`p-2 rounded hover:bg-gray-200 transition-colors ${
+            isActive('strikeThrough') ? 'bg-gray-200 text-primary-600' : 'text-gray-600'
+          }`}
+          title="Strikethrough"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path d="M17.3 4.9c-2.3-.6-4.4-1-6.2-.9-2.7 0-5.3.7-5.3 3.6 0 1.5 1.1 2.5 2.9 3.1"></path>
+            <path d="M4 12h16"></path>
+            <path d="M6.7 19.1c2.3.6 4.4 1 6.2.9 2.7 0 5.3-.7 5.3-3.6 0-1.5-1.1-2.5-2.9-3.1"></path>
+          </svg>
+        </button>
+        <div className="w-px h-6 bg-gray-300 mx-1"></div>
+        <button
+          type="button"
+          onClick={() => execCommand('insertUnorderedList')}
+          className={`p-2 rounded hover:bg-gray-200 transition-colors ${
+            isActive('insertUnorderedList') ? 'bg-gray-200 text-primary-600' : 'text-gray-600'
+          }`}
+          title="Bullet List"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <line x1="8" y1="6" x2="21" y2="6"></line>
+            <line x1="8" y1="12" x2="21" y2="12"></line>
+            <line x1="8" y1="18" x2="21" y2="18"></line>
+            <circle cx="4" cy="6" r="1" fill="currentColor"></circle>
+            <circle cx="4" cy="12" r="1" fill="currentColor"></circle>
+            <circle cx="4" cy="18" r="1" fill="currentColor"></circle>
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={() => execCommand('insertOrderedList')}
+          className={`p-2 rounded hover:bg-gray-200 transition-colors ${
+            isActive('insertOrderedList') ? 'bg-gray-200 text-primary-600' : 'text-gray-600'
+          }`}
+          title="Numbered List"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <line x1="10" y1="6" x2="21" y2="6"></line>
+            <line x1="10" y1="12" x2="21" y2="12"></line>
+            <line x1="10" y1="18" x2="21" y2="18"></line>
+            <text x="4" y="7" fontSize="6" fill="currentColor">1</text>
+            <text x="4" y="13" fontSize="6" fill="currentColor">2</text>
+            <text x="4" y="19" fontSize="6" fill="currentColor">3</text>
+          </svg>
+        </button>
+      </div>
+
+      {/* Editor Area */}
+      <div
+        ref={editorRef}
+        contentEditable
+        onInput={handleInput}
+        onFocus={() => setIsFocused(true)}
+        onBlur={() => setIsFocused(false)}
+        className="min-h-[300px] p-4 focus:outline-none prose prose-sm max-w-none"
+        style={{ minHeight: '300px' }}
+        data-placeholder={placeholder}
+        suppressContentEditableWarning
+      />
+
+      <style>{`
+        [contenteditable]:empty:before {
+          content: attr(data-placeholder);
+          color: #9ca3af;
+          pointer-events: none;
+        }
+      `}</style>
+    </div>
+  );
+};
 
 export const NoteFormPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -134,17 +286,14 @@ export const NoteFormPage: React.FC = () => {
                     />
                   </div>
 
-                  {/* Content */}
+                  {/* Rich Text Content */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Content</label>
-                    <textarea
+                    <RichTextEditor
                       value={formData.content}
-                      onChange={e => setFormData(prev => ({ ...prev, content: e.target.value }))}
+                      onChange={(value) => setFormData(prev => ({ ...prev, content: value }))}
                       placeholder="Write your note content..."
-                      rows={12}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                     />
-                    <p className="text-xs text-gray-500 mt-1">You can use HTML tags for formatting</p>
                   </div>
                 </div>
               </Card>

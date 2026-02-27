@@ -5,13 +5,67 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Notification, NotificationType } from '@/types';
-import { formatTimeAgo, groupNotificationsByDate } from '@/mock/notifications';
 
 interface NotificationDropdownProps {
   notifications: Notification[];
   onMarkAllRead: () => void;
+  onMarkAsRead?: (id: number) => void;
   onClose: () => void;
 }
+
+// Format time ago helper
+const formatTimeAgo = (dateString: string): string => {
+  const date = new Date(dateString);
+  const now = new Date();
+  const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+  if (seconds < 60) return 'Just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
+  return date.toLocaleDateString();
+};
+
+// Group notifications by date
+interface GroupedNotifications {
+  label: string;
+  notifications: Notification[];
+}
+
+const groupNotificationsByDate = (notifications: Notification[]): GroupedNotifications[] => {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today.getTime() - 86400000);
+  const thisWeek = new Date(today.getTime() - 7 * 86400000);
+
+  const groups: { [key: string]: Notification[] } = {
+    today: [],
+    yesterday: [],
+    thisWeek: [],
+    older: [],
+  };
+
+  notifications.forEach(notification => {
+    const date = new Date(notification.created_at);
+    if (date >= today) {
+      groups.today.push(notification);
+    } else if (date >= yesterday) {
+      groups.yesterday.push(notification);
+    } else if (date >= thisWeek) {
+      groups.thisWeek.push(notification);
+    } else {
+      groups.older.push(notification);
+    }
+  });
+
+  const result: GroupedNotifications[] = [];
+  if (groups.today.length) result.push({ label: 'Today', notifications: groups.today });
+  if (groups.yesterday.length) result.push({ label: 'Yesterday', notifications: groups.yesterday });
+  if (groups.thisWeek.length) result.push({ label: 'This Week', notifications: groups.thisWeek });
+  if (groups.older.length) result.push({ label: 'Older', notifications: groups.older });
+
+  return result;
+};
 
 const NotificationIcon: React.FC<{ type: NotificationType }> = ({ type }) => {
   const icons = {
