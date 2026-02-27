@@ -10,6 +10,14 @@ from .api import (
     UsersListView,
     DashboardView,
     ProfileUpdateView,
+    MarkWelcomedView,
+    SecurityQuestionsView,
+    ForgotPasswordView,
+    VerifySecurityAnswersView,
+    ResetPasswordView,
+    AdminUserListView,
+    AdminUserDetailView,
+    AdminCreateUserView,
 )
 
 __all__ = [
@@ -21,4 +29,12 @@ __all__ = [
     'UsersListView',
     'DashboardView',
     'ProfileUpdateView',
+    'MarkWelcomedView',
+    'SecurityQuestionsView',
+    'ForgotPasswordView',
+    'VerifySecurityAnswersView',
+    'ResetPasswordView',
+    'AdminUserListView',
+    'AdminUserDetailView',
+    'AdminCreateUserView',
 ]

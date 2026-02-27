@@ -19,6 +19,7 @@ class UserResponseSerializer(serializers.ModelSerializer):
             'role',
             'profile_pic',
             'is_active',
+            'is_welcomed',
             'created_at',
             'updated_at'
         ]

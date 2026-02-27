@@ -4,6 +4,7 @@ User model for Project Desk.
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
 from django.utils import timezone
+import secrets
 
 
 class UserManager(BaseUserManager):
@@ -60,6 +61,9 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     
+    # Onboarding
+    is_welcomed = models.BooleanField(default=False)
+    
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     
@@ -94,10 +98,48 @@ class SecurityQuestion(models.Model):
         related_name='security_questions'
     )
     question = models.CharField(max_length=255)
-    answer = models.CharField(max_length=255)
+    answer = models.CharField(max_length=255)  # Store hashed
     
     class Meta:
         db_table = 'security_questions'
     
     def __str__(self):
         return f"{self.user.username} - {self.question}"
+
+
+class PasswordResetToken(models.Model):
+    """Token for password reset via security questions."""
+    
+    id = models.AutoField(primary_key=True)
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='password_reset_tokens'
+    )
+    token = models.CharField(max_length=255, unique=True)
+    expires_at = models.DateTimeField()
+    used = models.BooleanField(default=False)
+    created_at = models.DateTimeField(default=timezone.now)
+    
+    class Meta:
+        db_table = 'password_reset_tokens'
+    
+    def __str__(self):
+        return f"Reset token for {self.user.username}"
+    
+    @classmethod
+    def create_token(cls, user):
+        """Create a new password reset token."""
+        from datetime import timedelta
+        token = secrets.token_urlsafe(32)
+        expires_at = timezone.now() + timedelta(hours=1)
+        return cls.objects.create(
+            user=user,
+            token=token,
+            expires_at=expires_at
+        )
+    
+    @property
+    def is_valid(self):
+        """Check if token is still valid."""
+        return not self.used and self.expires_at > timezone.now()

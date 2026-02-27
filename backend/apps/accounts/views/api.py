@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.views import TokenRefreshView
 from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
+from django.contrib.auth.hashers import make_password, check_password
 
 from apps.accounts.serializers import (
     RegisterRequestSerializer,
@@ -15,6 +16,7 @@ from apps.accounts.serializers import (
     AuthResponseSerializer
 )
 from apps.accounts.services import AuthService
+from apps.accounts.models import User, SecurityQuestion, PasswordResetToken
 
 
 class RegisterView(APIView):
@@ -31,6 +33,17 @@ class RegisterView(APIView):
         
         if serializer.is_valid():
             user = serializer.save()
+            
+            # Save security questions if provided
+            security_questions = request.data.get('security_questions', [])
+            for sq in security_questions:
+                if sq.get('question') and sq.get('answer'):
+                    SecurityQuestion.objects.create(
+                        user=user,
+                        question=sq['question'],
+                        answer=make_password(sq['answer'].lower().strip())
+                    )
+            
             auth_data = AuthService.get_auth_response(user)
             response_serializer = AuthResponseSerializer(auth_data)
             
@@ -163,15 +176,29 @@ class UsersListView(APIView):
     permission_classes = [IsAuthenticated]
     
     def get(self, request):
-        """Return list of active users."""
-        from apps.accounts.models import User
-        
+        """Return list of active users with search/filter."""
         users = User.objects.filter(is_active=True).order_by('full_name')
+        
+        # Search filter
+        search = request.query_params.get('search', '')
+        if search:
+            users = users.filter(
+                models.Q(full_name__icontains=search) |
+                models.Q(username__icontains=search) |
+                models.Q(email__icontains=search)
+            )
+        
+        # Role filter
+        role = request.query_params.get('role', '')
+        if role:
+            users = users.filter(role=role)
+        
         serializer = UserResponseSerializer(users, many=True)
         
         return Response(
             {
                 'success': True,
+                'count': users.count(),
                 'data': serializer.data
             },
             status=status.HTTP_200_OK
@@ -221,6 +248,7 @@ class DashboardView(APIView):
     def get(self, request):
         from apps.tasks.models import Task
         from apps.notes.models import Note
+        from apps.projects.models import Project
         from django.utils import timezone
         
         user = request.user
@@ -230,14 +258,15 @@ class DashboardView(APIView):
             # Admin sees all stats
             tasks = Task.objects.all()
             notes = Note.objects.all()
+            projects = Project.objects.all()
             
             # Get all users count
-            from apps.accounts.models import User
             total_employees = User.objects.filter(role='employee', is_active=True).count()
         else:
             # Employee sees only their stats
             tasks = Task.objects.filter(assigned_to=user)
             notes = Note.objects.filter(user=user)
+            projects = Project.objects.filter(members=user)
             total_employees = 0
         
         stats = {
@@ -253,6 +282,11 @@ class DashboardView(APIView):
                 'total': notes.count(),
                 'private': notes.filter(is_private=True).count(),
                 'shared': notes.filter(is_private=False).count(),
+            },
+            'projects': {
+                'total': projects.count(),
+                'active': projects.filter(status='active').count(),
+                'completed': projects.filter(status='completed').count(),
             },
             'total_employees': total_employees,
         }
@@ -307,3 +341,398 @@ class ProfileUpdateView(APIView):
     
     def patch(self, request):
         return self.put(request)
+
+
+# ========== WELCOME / ONBOARDING ==========
+
+class MarkWelcomedView(APIView):
+    """Mark user as welcomed (onboarding complete)."""
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        user = request.user
+        user.is_welcomed = True
+        user.save()
+        
+        return Response({
+            'success': True,
+            'message': 'Welcome status updated'
+        })
+
+
+# ========== SECURITY QUESTIONS ==========
+
+class SecurityQuestionsView(APIView):
+    """Manage security questions."""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        """Get user's security questions (without answers)."""
+        questions = SecurityQuestion.objects.filter(user=request.user)
+        data = [{'id': q.id, 'question': q.question} for q in questions]
+        
+        return Response({
+            'success': True,
+            'data': data
+        })
+    
+    def post(self, request):
+        """Set/update security questions."""
+        questions = request.data.get('questions', [])
+        
+        if len(questions) < 2:
+            return Response({
+                'success': False,
+                'message': 'At least 2 security questions required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Delete old questions
+        SecurityQuestion.objects.filter(user=request.user).delete()
+        
+        # Create new questions
+        for q in questions:
+            if q.get('question') and q.get('answer'):
+                SecurityQuestion.objects.create(
+                    user=request.user,
+                    question=q['question'],
+                    answer=make_password(q['answer'].lower().strip())
+                )
+        
+        return Response({
+            'success': True,
+            'message': 'Security questions updated'
+        })
+
+
+# ========== PASSWORD RESET ==========
+
+class ForgotPasswordView(APIView):
+    """Initiate password reset via security questions."""
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        """Step 1: Get security questions for email."""
+        email = request.data.get('email')
+        
+        if not email:
+            return Response({
+                'success': False,
+                'message': 'Email is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            return Response({
+                'success': False,
+                'message': 'User not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        questions = SecurityQuestion.objects.filter(user=user)
+        if not questions.exists():
+            return Response({
+                'success': False,
+                'message': 'No security questions set for this account'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        data = [{'id': q.id, 'question': q.question} for q in questions]
+        
+        return Response({
+            'success': True,
+            'user_id': user.id,
+            'questions': data
+        })
+
+
+class VerifySecurityAnswersView(APIView):
+    """Verify security question answers."""
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        """Step 2: Verify answers and get reset token."""
+        user_id = request.data.get('user_id')
+        answers = request.data.get('answers', [])  # [{id, answer}, ...]
+        
+        if not user_id or not answers:
+            return Response({
+                'success': False,
+                'message': 'User ID and answers required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({
+                'success': False,
+                'message': 'User not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Verify all answers
+        for answer in answers:
+            try:
+                question = SecurityQuestion.objects.get(id=answer['id'], user=user)
+                if not check_password(answer['answer'].lower().strip(), question.answer):
+                    return Response({
+                        'success': False,
+                        'message': 'Incorrect answer'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+            except SecurityQuestion.DoesNotExist:
+                return Response({
+                    'success': False,
+                    'message': 'Invalid question'
+                }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Generate reset token
+        token = PasswordResetToken.create_token(user)
+        
+        return Response({
+            'success': True,
+            'message': 'Answers verified',
+            'reset_token': token.token
+        })
+
+
+class ResetPasswordView(APIView):
+    """Reset password with token."""
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        """Step 3: Reset password with token."""
+        token = request.data.get('token')
+        new_password = request.data.get('new_password')
+        
+        if not token or not new_password:
+            return Response({
+                'success': False,
+                'message': 'Token and new password required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if len(new_password) < 6:
+            return Response({
+                'success': False,
+                'message': 'Password must be at least 6 characters'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            reset_token = PasswordResetToken.objects.get(token=token)
+        except PasswordResetToken.DoesNotExist:
+            return Response({
+                'success': False,
+                'message': 'Invalid token'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if not reset_token.is_valid:
+            return Response({
+                'success': False,
+                'message': 'Token expired or already used'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Reset password
+        user = reset_token.user
+        user.set_password(new_password)
+        user.save()
+        
+        # Mark token as used
+        reset_token.used = True
+        reset_token.save()
+        
+        return Response({
+            'success': True,
+            'message': 'Password reset successful'
+        })
+
+
+# ========== ADMIN USER MANAGEMENT ==========
+
+class AdminUserListView(APIView):
+    """Admin: List all users with search/filter."""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        if request.user.role != 'admin':
+            return Response({
+                'success': False,
+                'message': 'Admin access required'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        users = User.objects.all().order_by('-created_at')
+        
+        # Search
+        search = request.query_params.get('search', '')
+        if search:
+            from django.db.models import Q
+            users = users.filter(
+                Q(full_name__icontains=search) |
+                Q(username__icontains=search) |
+                Q(email__icontains=search)
+            )
+        
+        # Role filter
+        role = request.query_params.get('role', '')
+        if role:
+            users = users.filter(role=role)
+        
+        # Active filter
+        is_active = request.query_params.get('is_active', '')
+        if is_active:
+            users = users.filter(is_active=is_active == 'true')
+        
+        serializer = UserResponseSerializer(users, many=True)
+        
+        return Response({
+            'success': True,
+            'count': users.count(),
+            'data': serializer.data
+        })
+
+
+class AdminUserDetailView(APIView):
+    """Admin: Get/Update/Delete single user."""
+    permission_classes = [IsAuthenticated]
+    
+    def get_user(self, pk):
+        try:
+            return User.objects.get(pk=pk)
+        except User.DoesNotExist:
+            return None
+    
+    def get(self, request, pk):
+        if request.user.role != 'admin':
+            return Response({
+                'success': False,
+                'message': 'Admin access required'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        user = self.get_user(pk)
+        if not user:
+            return Response({
+                'success': False,
+                'message': 'User not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        serializer = UserResponseSerializer(user)
+        return Response({
+            'success': True,
+            'data': serializer.data
+        })
+    
+    def put(self, request, pk):
+        if request.user.role != 'admin':
+            return Response({
+                'success': False,
+                'message': 'Admin access required'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        user = self.get_user(pk)
+        if not user:
+            return Response({
+                'success': False,
+                'message': 'User not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        data = request.data
+        
+        # Update fields
+        if 'full_name' in data:
+            user.full_name = data['full_name']
+        if 'email' in data:
+            user.email = data['email']
+        if 'phone' in data:
+            user.phone = data['phone']
+        if 'role' in data:
+            user.role = data['role']
+        if 'is_active' in data:
+            user.is_active = data['is_active']
+        if 'password' in data and data['password']:
+            user.set_password(data['password'])
+        
+        user.save()
+        
+        serializer = UserResponseSerializer(user)
+        return Response({
+            'success': True,
+            'message': 'User updated',
+            'data': serializer.data
+        })
+    
+    def delete(self, request, pk):
+        if request.user.role != 'admin':
+            return Response({
+                'success': False,
+                'message': 'Admin access required'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        user = self.get_user(pk)
+        if not user:
+            return Response({
+                'success': False,
+                'message': 'User not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Prevent self-deletion
+        if user.id == request.user.id:
+            return Response({
+                'success': False,
+                'message': 'Cannot delete yourself'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        username = user.username
+        user.delete()
+        
+        return Response({
+            'success': True,
+            'message': f'User {username} deleted'
+        })
+
+
+class AdminCreateUserView(APIView):
+    """Admin: Create new user."""
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        if request.user.role != 'admin':
+            return Response({
+                'success': False,
+                'message': 'Admin access required'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        data = request.data
+        
+        # Validate required fields
+        required = ['username', 'email', 'password', 'full_name']
+        for field in required:
+            if not data.get(field):
+                return Response({
+                    'success': False,
+                    'message': f'{field} is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check unique constraints
+        if User.objects.filter(username=data['username']).exists():
+            return Response({
+                'success': False,
+                'message': 'Username already exists'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if User.objects.filter(email=data['email']).exists():
+            return Response({
+                'success': False,
+                'message': 'Email already exists'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Create user
+        user = User.objects.create_user(
+            username=data['username'],
+            email=data['email'],
+            password=data['password'],
+            full_name=data['full_name'],
+            phone=data.get('phone', ''),
+            role=data.get('role', 'employee'),
+        )
+        
+        serializer = UserResponseSerializer(user)
+        return Response({
+            'success': True,
+            'message': 'User created',
+            'data': serializer.data
+        }, status=status.HTTP_201_CREATED)
