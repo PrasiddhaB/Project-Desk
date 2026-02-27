@@ -56,7 +56,7 @@ import {
 } from '@/features/support/pages';
 
 // Billing
-import { BillingPage } from '@/features/billing/pages';
+import { BillingPage, AdminPlansPage, AdminSubscriptionsPage } from '@/features/billing/pages';
 
 // Notifications
 import { NotificationsPage } from '@/features/notifications/pages';
@@ -299,6 +299,14 @@ export const router = createBrowserRouter([
           {
             path: '/admin/support',
             element: <AllTicketsPage />,
+          },
+          {
+            path: '/admin/plans',
+            element: <AdminPlansPage />,
+          },
+          {
+            path: '/admin/subscriptions',
+            element: <AdminSubscriptionsPage />,
           },
         ],
       },
