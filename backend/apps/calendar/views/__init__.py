@@ -43,6 +43,7 @@ def get_calendar_events(request):
         try:
             end_date = datetime.strptime(end_str, '%Y-%m-%d').date()
         except ValueError:
+            # End of month
             next_month = today.replace(day=28) + timedelta(days=4)
             end_date = next_month.replace(day=1) - timedelta(days=1)
     else:
@@ -57,16 +58,15 @@ def get_calendar_events(request):
             tasks = Task.objects.filter(
                 due_date__gte=start_date,
                 due_date__lte=end_date
-            ).select_related('project', 'created_by').prefetch_related('assigned_to')
+            ).select_related('assigned_to', 'project')
         else:
             tasks = Task.objects.filter(
                 assigned_to=user,
                 due_date__gte=start_date,
                 due_date__lte=end_date
-            ).select_related('project', 'created_by').prefetch_related('assigned_to')
+            ).select_related('project')
         
         for task in tasks:
-            first_assignee = task.assigned_to.first()
             events.append({
                 'id': f'task-{task.id}',
                 'title': task.title,
@@ -77,7 +77,7 @@ def get_calendar_events(request):
                 'priority': task.priority,
                 'color': get_task_color(task.priority, task.status),
                 'url': f'/tasks/{task.id}' if is_admin else f'/my-tasks/{task.id}',
-                'assignee': first_assignee.full_name if first_assignee else None,
+                'assignee': task.assigned_to.full_name if task.assigned_to else None,
                 'project': task.project.name if task.project else None,
             })
     
@@ -104,7 +104,7 @@ def get_calendar_events(request):
                 'type': 'note',
                 'status': note.status,
                 'is_private': note.is_private,
-                'color': '#9333ea' if note.is_private else '#0891b2',
+                'color': '#9333ea' if note.is_private else '#0891b2',  # Purple for private, cyan for shared
                 'url': f'/notes/{note.id}',
                 'owner': note.user.full_name if note.user else None,
             })

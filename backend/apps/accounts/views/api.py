@@ -890,43 +890,36 @@ class TeamListCreateView(APIView):
     permission_classes = [IsAuthenticated]
     
     def get(self, request):
-        try:
-            from apps.accounts.team_models import Team
-            teams = Team.objects.prefetch_related('members').all()
-            
-            data = []
-            for team in teams:
-                members = team.members.all()
-                data.append({
-                    'id': team.id,
-                    'name': team.name,
-                    'description': team.description,
-                    'color': team.color,
-                    'member_count': members.count(),
-                    'members': [
-                        {
-                            'id': m.id,
-                            'full_name': m.full_name,
-                            'username': m.username,
-                            'profile_pic_url': m.profile_pic_url,
-                            'is_online': m.is_online,
-                        }
-                        for m in members[:10]
-                    ],
-                    'created_at': team.created_at.isoformat(),
-                })
-            
-            return Response({
-                'success': True,
-                'count': len(data),
-                'data': data
+        from apps.accounts.team_models import Team
+        teams = Team.objects.prefetch_related('members').all()
+        
+        data = []
+        for team in teams:
+            members = team.members.all()
+            data.append({
+                'id': team.id,
+                'name': team.name,
+                'description': team.description,
+                'color': team.color,
+                'member_count': members.count(),
+                'members': [
+                    {
+                        'id': m.id,
+                        'full_name': m.full_name,
+                        'username': m.username,
+                        'profile_pic_url': m.profile_pic_url,
+                        'is_online': m.is_online,
+                    }
+                    for m in members[:10]
+                ],
+                'created_at': team.created_at.isoformat(),
             })
-        except Exception:
-            return Response({
-                'success': True,
-                'count': 0,
-                'data': []
-            })
+        
+        return Response({
+            'success': True,
+            'count': len(data),
+            'data': data
+        })
     
     def post(self, request):
         if request.user.role != 'admin':
