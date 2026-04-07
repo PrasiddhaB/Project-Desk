@@ -9,6 +9,8 @@ from .task_serializers import (
     TaskUpdateSerializer,
     TaskStatusUpdateSerializer,
     TaskAssignSerializer,
+    TimeEntrySerializer,
+    TimeEntryCreateSerializer,
 )
 
 __all__ = [
@@ -19,4 +21,6 @@ __all__ = [
     'TaskUpdateSerializer',
     'TaskStatusUpdateSerializer',
     'TaskAssignSerializer',
+    'TimeEntrySerializer',
+    'TimeEntryCreateSerializer',
 ]

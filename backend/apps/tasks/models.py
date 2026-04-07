@@ -109,3 +109,38 @@ class Task(models.Model):
             cls.Priority.MEDIUM: 3,
             cls.Priority.LOW: 4,
         }
+
+
+class TaskTimeEntry(models.Model):
+    """Time tracking entry for tasks."""
+    
+    id = models.AutoField(primary_key=True)
+    task = models.ForeignKey(
+        Task,
+        on_delete=models.CASCADE,
+        related_name='time_entries'
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='time_entries'
+    )
+    description = models.CharField(max_length=255, blank=True, null=True)
+    duration_minutes = models.PositiveIntegerField(help_text='Duration in minutes')
+    started_at = models.DateTimeField(blank=True, null=True)
+    ended_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    
+    class Meta:
+        db_table = 'task_time_entries'
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"{self.user.username} - {self.task.title} - {self.duration_minutes}min"
+    
+    @property
+    def duration_display(self):
+        """Format duration as HH:MM."""
+        hours = self.duration_minutes // 60
+        minutes = self.duration_minutes % 60
+        return f"{hours}h {minutes}m"

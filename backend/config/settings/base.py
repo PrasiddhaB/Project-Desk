@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'apps.calendar',
 ]
 
+
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
@@ -79,8 +80,8 @@ DATABASES = {
         'USER': os.environ.get('DB_USER', 'postgres'),
         'PASSWORD': os.environ.get('DB_PASSWORD', ''),
         'HOST': os.environ.get('DB_HOST', '127.0.0.1'),
-
         'PORT': os.environ.get('DB_PORT', '5432'),
+        # No OPTIONS needed for local
     }
 }
 
@@ -162,9 +163,8 @@ CORS_ALLOWED_ORIGINS = [
 CORS_ALLOW_CREDENTIALS = True
 
 # Khalti Payment Gateway Settings
-# For production, set KHALTI_SECRET_KEY and KHALTI_ENV=live in .env
 KHALTI_SECRET_KEY = os.environ.get('KHALTI_SECRET_KEY', '5bf2afad915247d1a28055fb7aaee102')
-KHALTI_ENV = os.environ.get('KHALTI_ENV', 'dev')  # 'dev' or 'live'
+KHALTI_ENV = os.environ.get('KHALTI_ENV', 'dev')
 
 # Frontend URL (for payment redirects)
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173')

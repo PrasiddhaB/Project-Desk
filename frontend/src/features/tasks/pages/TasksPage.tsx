@@ -7,7 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout';
 import { Card, Button, Badge, Avatar } from '@/components/ui';
-import { StatusBadge, PriorityBadge } from '@/components/tasks';
+import { StatusBadge, PriorityBadge, DueDateBadge } from '@/components/tasks';
 import { taskApi } from '@/services/tasks';
 import { Task, TaskStatus, TaskPriority, STATUS_OPTIONS, PRIORITY_OPTIONS } from '@/types';
 
@@ -23,6 +23,18 @@ export const TasksPage: React.FC = () => {
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [draggedTask, setDraggedTask] = useState<Task | null>(null);
   const [updatingTaskId, setUpdatingTaskId] = useState<number | null>(null);
+  const [showStatusEditor, setShowStatusEditor] = useState(false);
+  
+  // Custom statuses (stored in localStorage)
+  const [customStatuses, setCustomStatuses] = useState<{key: string; label: string; icon: string}[]>(() => {
+    const saved = localStorage.getItem('pd-task-statuses');
+    if (saved) return JSON.parse(saved);
+    return [
+      { key: 'pending', label: 'Pending', icon: '📋' },
+      { key: 'in_progress', label: 'In Progress', icon: '🚀' },
+      { key: 'completed', label: 'Completed', icon: '✅' },
+    ];
+  });
   
   // Filters
   const [statusFilter, setStatusFilter] = useState<TaskStatus | ''>('');
@@ -146,15 +158,19 @@ export const TasksPage: React.FC = () => {
       
       <div className="flex items-center gap-2 mb-3">
         <PriorityBadge priority={task.priority} />
-        {task.is_overdue && <Badge variant="danger" size="sm">Overdue</Badge>}
+        <DueDateBadge dueDate={task.due_date} status={task.status} />
       </div>
       
       {task.due_date && (
-        <div className="flex items-center gap-1 text-xs text-gray-500 mb-3">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-          </svg>
-          <span>Due: {formatDate(task.due_date)}</span>
+        <div className="text-xs text-gray-500 mb-2">
+          {(() => {
+            const today = new Date(); today.setHours(0,0,0,0);
+            const due = new Date(task.due_date + 'T00:00:00');
+            const diff = Math.ceil((due.getTime() - today.getTime()) / 86400000);
+            if (diff < 0) return '';
+            if (diff === 0) return 'Due today';
+            return `${diff} days left`;
+          })()}
         </div>
       )}
 
@@ -318,6 +334,14 @@ export const TasksPage: React.FC = () => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
             </Button>
+
+            {/* Status Editor */}
+            <Button variant="outline" onClick={() => setShowStatusEditor(true)} title="Edit task statuses">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </Button>
           </div>
         </Card>
 
@@ -348,7 +372,8 @@ export const TasksPage: React.FC = () => {
                       <th className="text-left py-3 px-4 font-semibold text-gray-600">Status</th>
                       <th className="text-left py-3 px-4 font-semibold text-gray-600">Priority</th>
                       <th className="text-left py-3 px-4 font-semibold text-gray-600">Due Date</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-600">Assignees</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-600">Est. Time</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-600">Responsible</th>
                       <th className="text-left py-3 px-4 font-semibold text-gray-600">Project</th>
                       <th className="text-right py-3 px-4 font-semibold text-gray-600">Actions</th>
                     </tr>
@@ -373,17 +398,21 @@ export const TasksPage: React.FC = () => {
                         <td className="py-3 px-4 text-gray-600">
                           {formatDate(task.due_date)}
                         </td>
+                        <td className="py-3 px-4 text-gray-500 text-sm">
+                          —
+                        </td>
                         <td className="py-3 px-4">
-                          <div className="flex -space-x-2">
-                            {task.assigned_to.slice(0, 3).map(user => (
-                              <Avatar key={user.id} name={user.full_name} size="xs" />
-                            ))}
-                            {task.assigned_to.length > 3 && (
-                              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-gray-200 text-xs text-gray-600">
-                                +{task.assigned_to.length - 3}
-                              </span>
-                            )}
-                          </div>
+                          {task.assigned_to.length > 0 ? (
+                            <div className="flex items-center gap-2">
+                              <Avatar name={task.assigned_to[0].full_name} size="xs" />
+                              <span className="text-sm text-gray-700">{task.assigned_to[0].full_name}</span>
+                              {task.assigned_to.length > 1 && (
+                                <span className="text-xs text-gray-400">+{task.assigned_to.length - 1}</span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-gray-400 text-sm italic">Unassigned</span>
+                          )}
                         </td>
                         <td className="py-3 px-4 text-gray-600">
                           {task.project_name || (
@@ -465,6 +494,81 @@ export const TasksPage: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Status Editor Modal */}
+      {showStatusEditor && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50" onClick={() => setShowStatusEditor(false)}>
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+            <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-6">Edit task statuses</h2>
+            
+            <div className="space-y-3 mb-6">
+              {customStatuses.map((s, i) => (
+                <div key={i} className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-slate-700">
+                  <span className="text-lg">{s.icon}</span>
+                  <input
+                    type="text"
+                    value={s.label}
+                    onChange={e => {
+                      const updated = [...customStatuses];
+                      updated[i] = { ...updated[i], label: e.target.value };
+                      setCustomStatuses(updated);
+                    }}
+                    className="flex-1 bg-transparent border-none outline-none text-sm font-medium text-gray-800 dark:text-white"
+                  />
+                  {customStatuses.length > 2 && s.key !== 'completed' && (
+                    <button
+                      onClick={() => setCustomStatuses(customStatuses.filter((_, j) => j !== i))}
+                      className="p-1 text-gray-400 hover:text-red-500"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+              ))}
+
+              {/* Completed always at bottom, separated */}
+              <div className="pt-2 border-t border-gray-200 dark:border-slate-700 mt-2">
+                <p className="text-xs text-gray-400 mb-2">Done status (cannot be removed)</p>
+              </div>
+            </div>
+
+            {/* Add new status */}
+            <button
+              onClick={() => {
+                const key = `custom_${Date.now()}`;
+                setCustomStatuses(prev => {
+                  const withoutCompleted = prev.filter(s => s.key !== 'completed');
+                  const completed = prev.find(s => s.key === 'completed');
+                  return [...withoutCompleted, { key, label: 'New Status', icon: '📌' }, ...(completed ? [completed] : [])];
+                });
+              }}
+              className="w-full text-left px-3 py-2 text-sm text-gray-400 hover:text-primary-500 hover:bg-gray-50 dark:hover:bg-slate-700 rounded-lg transition-colors mb-6"
+            >
+              + Add new status
+            </button>
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowStatusEditor(false)}
+                className="px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  localStorage.setItem('pd-task-statuses', JSON.stringify(customStatuses));
+                  setShowStatusEditor(false);
+                }}
+                className="px-4 py-2 text-sm font-medium text-white bg-primary-500 hover:bg-primary-600 rounded-lg transition-colors"
+              >
+                Save changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AppLayout>
   );
 };

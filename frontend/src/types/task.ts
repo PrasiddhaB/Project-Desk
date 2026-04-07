@@ -57,6 +57,20 @@ export interface TaskStats {
   high_priority: number;
 }
 
+export interface TaskTimeEntry {
+  id: number;
+  task: number;
+  task_title: string;
+  user: number;
+  user_name: string;
+  description?: string;
+  duration_minutes: number;
+  duration_display: string;
+  started_at?: string;
+  ended_at?: string;
+  created_at: string;
+}
+
 export const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
   { value: 'pending', label: 'Pending' },
   { value: 'in_progress', label: 'In Progress' },

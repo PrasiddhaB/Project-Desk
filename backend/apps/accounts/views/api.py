@@ -5,6 +5,7 @@ from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework_simplejwt.views import TokenRefreshView
 from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
 from django.contrib.auth.hashers import make_password, check_password
@@ -736,3 +737,285 @@ class AdminCreateUserView(APIView):
             'message': 'User created',
             'data': serializer.data
         }, status=status.HTTP_201_CREATED)
+
+
+# ========== PROFILE PICTURE UPLOAD ==========
+
+class ProfilePicUploadView(APIView):
+    """Upload profile picture."""
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+    
+    def post(self, request):
+        file = request.FILES.get('profile_pic')
+        if not file:
+            return Response({
+                'success': False,
+                'message': 'No file provided'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Validate file type
+        allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+        if file.content_type not in allowed_types:
+            return Response({
+                'success': False,
+                'message': 'Invalid file type. Use JPEG, PNG, GIF, or WebP.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Validate file size (max 5MB)
+        if file.size > 5 * 1024 * 1024:
+            return Response({
+                'success': False,
+                'message': 'File too large. Max 5MB.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Delete old profile pic
+        user = request.user
+        if user.profile_pic:
+            user.profile_pic.delete(save=False)
+        
+        user.profile_pic = file
+        user.save()
+        
+        serializer = UserResponseSerializer(user)
+        return Response({
+            'success': True,
+            'message': 'Profile picture updated',
+            'data': serializer.data
+        })
+    
+    def delete(self, request):
+        """Remove profile picture."""
+        user = request.user
+        if user.profile_pic:
+            user.profile_pic.delete(save=False)
+            user.profile_pic = None
+            user.save()
+        
+        serializer = UserResponseSerializer(user)
+        return Response({
+            'success': True,
+            'message': 'Profile picture removed',
+            'data': serializer.data
+        })
+
+
+# ========== TEAM PAGE ==========
+
+class TeamView(APIView):
+    """Get team members with online status."""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        users = User.objects.filter(is_active=True).order_by('full_name')
+        
+        # Search filter
+        search = request.query_params.get('search', '')
+        if search:
+            from django.db.models import Q
+            users = users.filter(
+                Q(full_name__icontains=search) |
+                Q(username__icontains=search) |
+                Q(email__icontains=search)
+            )
+        
+        # Role filter
+        role = request.query_params.get('role', '')
+        if role:
+            users = users.filter(role=role)
+        
+        serializer = UserResponseSerializer(users, many=True)
+        
+        online_count = sum(1 for u in users if u.is_online)
+        
+        return Response({
+            'success': True,
+            'count': users.count(),
+            'online_count': online_count,
+            'data': serializer.data
+        })
+
+
+# ========== ACTIVITY LOG ==========
+
+class ActivityLogView(APIView):
+    """Get activity log for the user or all (admin)."""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        from apps.common.models import ActivityLog
+        
+        user = request.user
+        
+        if user.role == 'admin':
+            logs = ActivityLog.objects.all()
+        else:
+            logs = ActivityLog.objects.filter(user=user)
+        
+        # Filter by action type
+        action_type = request.query_params.get('action', '')
+        if action_type:
+            logs = logs.filter(action=action_type)
+        
+        # Limit
+        limit = int(request.query_params.get('limit', 50))
+        logs = logs[:limit]
+        
+        data = []
+        for log in logs:
+            data.append({
+                'id': log.id,
+                'user_id': log.user_id,
+                'user_name': log.user.full_name if log.user else 'System',
+                'user_username': log.user.username if log.user else 'system',
+                'action': log.action,
+                'description': log.description,
+                'target_type': log.target_type,
+                'target_id': log.target_id,
+                'metadata': log.metadata,
+                'created_at': log.created_at.isoformat(),
+            })
+        
+        return Response({
+            'success': True,
+            'count': len(data),
+            'data': data
+        })
+
+
+# ========== TEAMS ==========
+
+class TeamListCreateView(APIView):
+    """List all teams or create a new team (admin only)."""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        try:
+            from apps.accounts.team_models import Team
+            teams = Team.objects.prefetch_related('members').all()
+            
+            data = []
+            for team in teams:
+                members = team.members.all()
+                data.append({
+                    'id': team.id,
+                    'name': team.name,
+                    'description': team.description,
+                    'color': team.color,
+                    'member_count': members.count(),
+                    'members': [
+                        {
+                            'id': m.id,
+                            'full_name': m.full_name,
+                            'username': m.username,
+                            'profile_pic_url': m.profile_pic_url,
+                            'is_online': m.is_online,
+                        }
+                        for m in members[:10]
+                    ],
+                    'created_at': team.created_at.isoformat(),
+                })
+            
+            return Response({
+                'success': True,
+                'count': len(data),
+                'data': data
+            })
+        except Exception:
+            return Response({
+                'success': True,
+                'count': 0,
+                'data': []
+            })
+    
+    def post(self, request):
+        if request.user.role != 'admin':
+            return Response({'success': False, 'message': 'Admin only'}, status=status.HTTP_403_FORBIDDEN)
+        
+        from apps.accounts.team_models import Team
+        name = request.data.get('name', '').strip()
+        if not name:
+            return Response({'success': False, 'message': 'Name required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if Team.objects.filter(name__iexact=name).exists():
+            return Response({'success': False, 'message': 'Team name already exists'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        team = Team.objects.create(
+            name=name,
+            description=request.data.get('description', ''),
+            color=request.data.get('color', 'blue'),
+            created_by=request.user,
+        )
+        
+        member_ids = request.data.get('member_ids', [])
+        if member_ids:
+            team.members.set(member_ids)
+        
+        return Response({
+            'success': True,
+            'message': f'Team "{name}" created',
+            'data': {'id': team.id, 'name': team.name}
+        }, status=status.HTTP_201_CREATED)
+
+
+class TeamDetailView(APIView):
+    """Get/Update/Delete a team."""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, pk):
+        from apps.accounts.team_models import Team
+        try:
+            team = Team.objects.prefetch_related('members').get(pk=pk)
+        except Team.DoesNotExist:
+            return Response({'success': False, 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        members = team.members.all()
+        return Response({
+            'success': True,
+            'data': {
+                'id': team.id,
+                'name': team.name,
+                'description': team.description,
+                'color': team.color,
+                'members': [
+                    {'id': m.id, 'full_name': m.full_name, 'username': m.username, 'profile_pic_url': m.profile_pic_url, 'is_online': m.is_online}
+                    for m in members
+                ],
+            }
+        })
+    
+    def put(self, request, pk):
+        if request.user.role != 'admin':
+            return Response({'success': False, 'message': 'Admin only'}, status=status.HTTP_403_FORBIDDEN)
+        
+        from apps.accounts.team_models import Team
+        try:
+            team = Team.objects.get(pk=pk)
+        except Team.DoesNotExist:
+            return Response({'success': False, 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        if 'name' in request.data:
+            team.name = request.data['name']
+        if 'description' in request.data:
+            team.description = request.data['description']
+        if 'color' in request.data:
+            team.color = request.data['color']
+        team.save()
+        
+        if 'member_ids' in request.data:
+            team.members.set(request.data['member_ids'])
+        
+        return Response({'success': True, 'message': 'Team updated'})
+    
+    def delete(self, request, pk):
+        if request.user.role != 'admin':
+            return Response({'success': False, 'message': 'Admin only'}, status=status.HTTP_403_FORBIDDEN)
+        
+        from apps.accounts.team_models import Team
+        try:
+            team = Team.objects.get(pk=pk)
+        except Team.DoesNotExist:
+            return Response({'success': False, 'message': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        team.delete()
+        return Response({'success': True, 'message': 'Team deleted'})

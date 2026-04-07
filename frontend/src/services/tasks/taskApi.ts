@@ -169,6 +169,40 @@ export const taskApi = {
     const response = await client.get<ApiResponse<Task[]>>('/tasks/due-today/');
     return response.data.data;
   },
+
+  // ========== TIME TRACKING ==========
+
+  /**
+   * Get time entries for a task
+   */
+  async getTimeEntries(taskId: number): Promise<{count: number; total_minutes: number; total_display: string; data: any[]}> {
+    const response = await client.get(`/tasks/${taskId}/time-entries/`);
+    return response.data;
+  },
+
+  /**
+   * Add time entry to a task
+   */
+  async addTimeEntry(taskId: number, data: { description?: string; duration_minutes: number }): Promise<any> {
+    const response = await client.post(`/tasks/${taskId}/time-entries/`, data);
+    return response.data.data;
+  },
+
+  /**
+   * Delete a time entry
+   */
+  async deleteTimeEntry(taskId: number, entryId: number): Promise<void> {
+    await client.delete(`/tasks/${taskId}/time-entries/${entryId}/`);
+  },
+
+  /**
+   * Get current user's time entries
+   */
+  async getMyTimeEntries(limit?: number): Promise<{count: number; total_minutes: number; total_display: string; data: any[]}> {
+    const url = limit ? `/tasks/my-time-entries/?limit=${limit}` : '/tasks/my-time-entries/';
+    const response = await client.get(url);
+    return response.data;
+  },
 };
 
 export default taskApi;

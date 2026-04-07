@@ -11,6 +11,18 @@ import { Card, Button, Input } from '@/components/ui';
 import { noteApi } from '@/services/notes';
 import { NoteStatus, NOTE_STATUS_OPTIONS } from '@/types';
 
+// Note color options
+const NOTE_COLORS = [
+  { value: '', label: 'None', class: 'bg-white border-gray-300' },
+  { value: 'yellow', label: 'Yellow', class: 'bg-yellow-100 border-yellow-400' },
+  { value: 'green', label: 'Green', class: 'bg-green-100 border-green-400' },
+  { value: 'blue', label: 'Blue', class: 'bg-blue-100 border-blue-400' },
+  { value: 'purple', label: 'Purple', class: 'bg-purple-100 border-purple-400' },
+  { value: 'pink', label: 'Pink', class: 'bg-pink-100 border-pink-400' },
+  { value: 'orange', label: 'Orange', class: 'bg-orange-100 border-orange-400' },
+  { value: 'red', label: 'Red', class: 'bg-red-100 border-red-400' },
+];
+
 // Rich Text Editor Component
 const RichTextEditor: React.FC<{
   value: string;
@@ -177,6 +189,7 @@ export const NoteFormPage: React.FC = () => {
     status: 'not-started' as NoteStatus,
     pinned: false,
     is_private: true,
+    color: '' as string,
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -197,6 +210,7 @@ export const NoteFormPage: React.FC = () => {
         status: note.status,
         pinned: note.pinned,
         is_private: note.is_private,
+        color: note.color || '',
       });
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to load note');
@@ -346,6 +360,26 @@ export const NoteFormPage: React.FC = () => {
                       <p className="text-xs text-gray-500">Only you can see this note</p>
                     </div>
                   </label>
+
+                  {/* Color Picker */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Note Color</label>
+                    <div className="flex flex-wrap gap-2">
+                      {NOTE_COLORS.map(c => (
+                        <button
+                          key={c.value}
+                          type="button"
+                          onClick={() => setFormData(prev => ({ ...prev, color: c.value }))}
+                          className={`w-8 h-8 rounded-full border-2 transition-all ${c.class} ${
+                            formData.color === c.value
+                              ? 'ring-2 ring-primary-500 ring-offset-2 scale-110'
+                              : 'hover:scale-105'
+                          }`}
+                          title={c.label}
+                        />
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </Card>
 

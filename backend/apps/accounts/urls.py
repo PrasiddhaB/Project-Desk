@@ -19,6 +19,11 @@ from apps.accounts.views import (
     AdminUserListView,
     AdminUserDetailView,
     AdminCreateUserView,
+    ProfilePicUploadView,
+    TeamView,
+    ActivityLogView,
+    TeamListCreateView,
+    TeamDetailView,
 )
 
 app_name = 'accounts'
@@ -33,6 +38,7 @@ urlpatterns = [
     
     # Profile
     path('profile/', ProfileUpdateView.as_view(), name='profile'),
+    path('profile/picture/', ProfilePicUploadView.as_view(), name='profile_pic'),
     path('mark-welcomed/', MarkWelcomedView.as_view(), name='mark_welcomed'),
     path('security-questions/', SecurityQuestionsView.as_view(), name='security_questions'),
     
@@ -44,6 +50,12 @@ urlpatterns = [
     # Users
     path('users/', UsersListView.as_view(), name='users'),
     path('dashboard/', DashboardView.as_view(), name='dashboard'),
+    path('team/', TeamView.as_view(), name='team'),
+    path('activity-log/', ActivityLogView.as_view(), name='activity_log'),
+    
+    # Team Groups
+    path('teams/', TeamListCreateView.as_view(), name='teams_list'),
+    path('teams/<int:pk>/', TeamDetailView.as_view(), name='teams_detail'),
     
     # Admin User Management
     path('admin/users/', AdminUserListView.as_view(), name='admin_users_list'),

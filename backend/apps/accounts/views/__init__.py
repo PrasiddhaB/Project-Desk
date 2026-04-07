@@ -18,6 +18,11 @@ from .api import (
     AdminUserListView,
     AdminUserDetailView,
     AdminCreateUserView,
+    ProfilePicUploadView,
+    TeamView,
+    ActivityLogView,
+    TeamListCreateView,
+    TeamDetailView,
 )
 
 __all__ = [
@@ -37,4 +42,9 @@ __all__ = [
     'AdminUserListView',
     'AdminUserDetailView',
     'AdminCreateUserView',
+    'ProfilePicUploadView',
+    'TeamView',
+    'ActivityLogView',
+    'TeamListCreateView',
+    'TeamDetailView',
 ]

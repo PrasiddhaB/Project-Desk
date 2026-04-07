@@ -33,7 +33,7 @@ class NoteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Note
         fields = ['id', 'title', 'content', 'status', 'pinned', 
-                  'is_private', 'user', 'owner_name', 'shares',
+                  'is_private', 'color', 'user', 'owner_name', 'shares',
                   'created_at', 'updated_at']
 
 
@@ -45,8 +45,8 @@ class NoteListSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Note
-        fields = ['id', 'title', 'status', 'pinned', 'is_private',
-                  'user', 'owner_name', 'share_count', 'can_edit',
+        fields = ['id', 'title', 'content', 'status', 'pinned', 'is_private',
+                  'color', 'user', 'owner_name', 'share_count', 'can_edit',
                   'created_at', 'updated_at']
     
     def get_share_count(self, obj):
@@ -73,7 +73,7 @@ class NoteDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Note
         fields = ['id', 'title', 'content', 'status', 'pinned',
-                  'is_private', 'user', 'owner_name', 'shares', 
+                  'is_private', 'color', 'user', 'owner_name', 'shares', 
                   'can_edit', 'created_at', 'updated_at']
     
     def get_can_edit(self, obj):
@@ -91,7 +91,7 @@ class NoteCreateSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Note
-        fields = ['title', 'content', 'status', 'pinned', 'is_private']
+        fields = ['title', 'content', 'status', 'pinned', 'is_private', 'color']
     
     def create(self, validated_data):
         validated_data['user'] = self.context['request'].user
@@ -103,7 +103,7 @@ class NoteUpdateSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Note
-        fields = ['title', 'content', 'status', 'pinned', 'is_private']
+        fields = ['title', 'content', 'status', 'pinned', 'is_private', 'color']
 
 
 class ShareNoteRequestSerializer(serializers.Serializer):

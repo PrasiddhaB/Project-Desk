@@ -248,12 +248,24 @@ export const NotesPage: React.FC = () => {
           /* Notes Grid */
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredNotes.length > 0 ? (
-              filteredNotes.map(note => (
+              filteredNotes.map(note => {
+                const colorMap: Record<string, string> = {
+                  yellow: 'bg-yellow-50 border-l-4 border-yellow-400',
+                  green: 'bg-green-50 border-l-4 border-green-400',
+                  blue: 'bg-blue-50 border-l-4 border-blue-400',
+                  purple: 'bg-purple-50 border-l-4 border-purple-400',
+                  pink: 'bg-pink-50 border-l-4 border-pink-400',
+                  orange: 'bg-orange-50 border-l-4 border-orange-400',
+                  red: 'bg-red-50 border-l-4 border-red-400',
+                };
+                const noteColor = note.color && colorMap[note.color] ? colorMap[note.color] : '';
+
+                return (
                 <Card
                   key={note.id}
                   className={`border-0 shadow-sm hover:shadow-md transition-shadow ${
                     note.pinned ? 'ring-2 ring-yellow-400' : ''
-                  }`}
+                  } ${noteColor}`}
                 >
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex items-center gap-2">
@@ -318,7 +330,8 @@ export const NotesPage: React.FC = () => {
                     )}
                   </div>
                 </Card>
-              ))
+                );
+              })
             ) : (
               <div className="col-span-full">
                 <Card className="border-0 shadow-sm text-center py-12">

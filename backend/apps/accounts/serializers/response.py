@@ -8,6 +8,9 @@ from apps.accounts.models import User
 class UserResponseSerializer(serializers.ModelSerializer):
     """Serializer for user response data."""
     
+    is_online = serializers.BooleanField(read_only=True)
+    profile_pic_url = serializers.CharField(read_only=True)
+    
     class Meta:
         model = User
         fields = [
@@ -18,8 +21,11 @@ class UserResponseSerializer(serializers.ModelSerializer):
             'phone',
             'role',
             'profile_pic',
+            'profile_pic_url',
             'is_active',
             'is_welcomed',
+            'is_online',
+            'last_active',
             'created_at',
             'updated_at'
         ]

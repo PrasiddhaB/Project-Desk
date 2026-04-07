@@ -24,6 +24,7 @@ class Note(models.Model):
     )
     pinned = models.BooleanField(default=False)
     is_private = models.BooleanField(default=True)
+    color = models.CharField(max_length=20, blank=True, null=True, default=None)
     
     # Owner
     user = models.ForeignKey(

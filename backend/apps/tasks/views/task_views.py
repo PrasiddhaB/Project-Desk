@@ -8,7 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from django.db.models import Q, Count
 from django.utils import timezone
 
-from apps.tasks.models import Task
+from apps.tasks.models import Task, TaskTimeEntry
 from apps.tasks.serializers import (
     TaskSerializer,
     TaskListSerializer,
@@ -17,6 +17,8 @@ from apps.tasks.serializers import (
     TaskUpdateSerializer,
     TaskStatusUpdateSerializer,
     TaskAssignSerializer,
+    TimeEntrySerializer,
+    TimeEntryCreateSerializer,
 )
 from apps.tasks.permissions import (
     IsAdminUser,
@@ -387,4 +389,105 @@ class TaskViewSet(viewsets.ModelViewSet):
         return Response({
             'count': len(events),
             'events': events
+        })
+    
+    # ========== TIME TRACKING ==========
+    
+    @action(detail=True, methods=['get', 'post'], url_path='time-entries')
+    def time_entries(self, request, pk=None):
+        """
+        GET: List time entries for a task.
+        POST: Add a time entry to a task.
+        """
+        task = self.get_object()
+        
+        if request.method == 'GET':
+            entries = TaskTimeEntry.objects.filter(task=task).select_related('user')
+            
+            # Filter by user if not admin
+            if request.user.role != 'admin':
+                entries = entries.filter(user=request.user)
+            
+            serializer = TimeEntrySerializer(entries, many=True)
+            
+            total_minutes = sum(e.duration_minutes for e in entries)
+            
+            return Response({
+                'count': entries.count(),
+                'total_minutes': total_minutes,
+                'total_display': f"{total_minutes // 60}h {total_minutes % 60}m",
+                'data': serializer.data
+            })
+        
+        elif request.method == 'POST':
+            serializer = TimeEntryCreateSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            
+            entry = TaskTimeEntry.objects.create(
+                task=task,
+                user=request.user,
+                **serializer.validated_data
+            )
+            
+            response_serializer = TimeEntrySerializer(entry)
+            return Response({
+                'message': 'Time entry added',
+                'data': response_serializer.data
+            }, status=status.HTTP_201_CREATED)
+    
+    @action(detail=True, methods=['delete'], url_path='time-entries/(?P<entry_id>[^/.]+)')
+    def delete_time_entry(self, request, pk=None, entry_id=None):
+        """Delete a time entry."""
+        task = self.get_object()
+        
+        try:
+            entry = TaskTimeEntry.objects.get(id=entry_id, task=task)
+        except TaskTimeEntry.DoesNotExist:
+            return Response({
+                'message': 'Time entry not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Only owner or admin can delete
+        if entry.user != request.user and request.user.role != 'admin':
+            return Response({
+                'message': 'Permission denied'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        entry.delete()
+        return Response({'message': 'Time entry deleted'})
+    
+    @action(detail=False, methods=['get'], url_path='my-time-entries')
+    def my_time_entries(self, request):
+        """Get all time entries for the current user."""
+        entries = TaskTimeEntry.objects.filter(
+            user=request.user
+        ).select_related('task', 'user').order_by('-created_at')
+        
+        # Optional date range filter
+        from datetime import datetime
+        start = request.query_params.get('start_date')
+        end = request.query_params.get('end_date')
+        
+        if start:
+            try:
+                entries = entries.filter(created_at__date__gte=datetime.strptime(start, '%Y-%m-%d').date())
+            except ValueError:
+                pass
+        if end:
+            try:
+                entries = entries.filter(created_at__date__lte=datetime.strptime(end, '%Y-%m-%d').date())
+            except ValueError:
+                pass
+        
+        limit = int(request.query_params.get('limit', 50))
+        entries = entries[:limit]
+        
+        serializer = TimeEntrySerializer(entries, many=True)
+        total_minutes = sum(e.duration_minutes for e in entries)
+        
+        return Response({
+            'count': len(serializer.data),
+            'total_minutes': total_minutes,
+            'total_display': f"{total_minutes // 60}h {total_minutes % 60}m",
+            'data': serializer.data
         })

@@ -12,6 +12,10 @@ export interface User {
   phone?: string;
   role: UserRole;
   is_active: boolean;
+  profile_pic?: string;
+  profile_pic_url?: string;
+  is_online?: boolean;
+  last_active?: string;
   created_at: string;
   updated_at: string;
 }

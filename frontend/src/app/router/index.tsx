@@ -64,6 +64,12 @@ import { NotificationsPage } from '@/features/notifications/pages';
 // Profile
 import { ProfilePage } from '@/features/profile/pages';
 
+// Team
+import { TeamPage } from '@/features/team/pages';
+
+// Activity Log
+import { ActivityLogPage } from '@/features/activity/pages';
+
 // Not Found
 import { NotFoundPage } from '@/features/not-found/pages';
 
@@ -327,6 +333,18 @@ export const router = createBrowserRouter([
       {
         path: '/profile',
         element: <ProfilePage />,
+      },
+
+      // Team (All Users)
+      {
+        path: '/team',
+        element: <TeamPage />,
+      },
+
+      // Activity Log (All Users)
+      {
+        path: '/activity',
+        element: <ActivityLogPage />,
       },
     ],
   },

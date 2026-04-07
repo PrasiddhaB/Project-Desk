@@ -55,7 +55,7 @@ class User(AbstractBaseUser, PermissionsMixin):
         choices=Role.choices,
         default=Role.EMPLOYEE
     )
-    profile_pic = models.CharField(max_length=255, blank=True, null=True)
+    profile_pic = models.ImageField(upload_to='profile_pics/', blank=True, null=True)
     
     # Django auth fields
     is_active = models.BooleanField(default=True)
@@ -63,6 +63,9 @@ class User(AbstractBaseUser, PermissionsMixin):
     
     # Onboarding
     is_welcomed = models.BooleanField(default=False)
+    
+    # Online status tracking
+    last_active = models.DateTimeField(null=True, blank=True)
     
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
@@ -86,6 +89,21 @@ class User(AbstractBaseUser, PermissionsMixin):
     @property
     def is_employee(self):
         return self.role == self.Role.EMPLOYEE
+    
+    @property
+    def is_online(self):
+        """User is online if active within last 5 minutes."""
+        if self.last_active:
+            from datetime import timedelta
+            return (timezone.now() - self.last_active) < timedelta(minutes=5)
+        return False
+    
+    @property
+    def profile_pic_url(self):
+        """Get profile picture URL."""
+        if self.profile_pic:
+            return self.profile_pic.url
+        return None
 
 
 class SecurityQuestion(models.Model):

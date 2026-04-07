@@ -239,3 +239,28 @@ class TaskAssignSerializer(serializers.Serializer):
                 f'Invalid user IDs: {list(invalid_ids)}'
             )
         return value
+
+
+# ========== TIME TRACKING ==========
+
+class TimeEntrySerializer(serializers.ModelSerializer):
+    """Serializer for time entries."""
+    user_name = serializers.CharField(source='user.full_name', read_only=True)
+    task_title = serializers.CharField(source='task.title', read_only=True)
+    duration_display = serializers.CharField(read_only=True)
+    
+    class Meta:
+        from apps.tasks.models import TaskTimeEntry
+        model = TaskTimeEntry
+        fields = ['id', 'task', 'task_title', 'user', 'user_name', 
+                  'description', 'duration_minutes', 'duration_display',
+                  'started_at', 'ended_at', 'created_at']
+        read_only_fields = ['id', 'user', 'created_at']
+
+
+class TimeEntryCreateSerializer(serializers.Serializer):
+    """Serializer for creating time entries."""
+    description = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    duration_minutes = serializers.IntegerField(min_value=1)
+    started_at = serializers.DateTimeField(required=False, allow_null=True)
+    ended_at = serializers.DateTimeField(required=False, allow_null=True)

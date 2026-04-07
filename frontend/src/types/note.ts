@@ -24,6 +24,7 @@ export interface Note {
   status: NoteStatus;
   pinned: boolean;
   is_private: boolean;
+  color?: string | null;
   shares?: NoteShare[];
   share_count?: number;
   can_edit?: boolean;
@@ -37,6 +38,7 @@ export interface NoteFormData {
   status: NoteStatus;
   pinned: boolean;
   is_private: boolean;
+  color?: string | null;
 }
 
 export interface NoteShareFormData {
@@ -48,4 +50,15 @@ export const NOTE_STATUS_OPTIONS: { value: NoteStatus; label: string }[] = [
   { value: 'not-started', label: 'Not Started' },
   { value: 'pending', label: 'Pending' },
   { value: 'completed', label: 'Completed' },
+];
+
+export const NOTE_COLORS: { value: string; label: string; bg: string; border: string }[] = [
+  { value: '', label: 'None', bg: '', border: '' },
+  { value: 'yellow', label: 'Yellow', bg: 'bg-yellow-50', border: 'border-yellow-300' },
+  { value: 'green', label: 'Green', bg: 'bg-green-50', border: 'border-green-300' },
+  { value: 'blue', label: 'Blue', bg: 'bg-blue-50', border: 'border-blue-300' },
+  { value: 'purple', label: 'Purple', bg: 'bg-purple-50', border: 'border-purple-300' },
+  { value: 'pink', label: 'Pink', bg: 'bg-pink-50', border: 'border-pink-300' },
+  { value: 'orange', label: 'Orange', bg: 'bg-orange-50', border: 'border-orange-300' },
+  { value: 'red', label: 'Red', bg: 'bg-red-50', border: 'border-red-300' },
 ];

@@ -7,24 +7,13 @@ import { Link } from 'react-router-dom';
 import { Task } from '@/types/task';
 import { StatusBadge } from './StatusBadge';
 import { PriorityBadge } from './PriorityBadge';
+import { DueDateBadge } from './DueDateBadge';
 
 interface TaskCardProps {
   task: Task;
 }
 
 export const TaskCard: React.FC<TaskCardProps> = ({ task }) => {
-  const formatDate = (dateString: string | null) => {
-    if (!dateString) return 'No deadline';
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
-  };
-
-  const isOverdue = task.due_date && new Date(task.due_date) < new Date() && task.status !== 'completed';
-
   return (
     <div className="bg-white rounded-xl shadow-soft p-5 hover:shadow-lg transition-all duration-300 hover:-translate-y-1 border border-gray-100">
       <div className="flex items-start justify-between mb-3">
@@ -45,14 +34,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task }) => {
 
       <div className="flex items-center justify-between">
         <StatusBadge status={task.status} size="sm" />
-        
-        <div className={`flex items-center gap-1.5 text-sm ${isOverdue ? 'text-red-500' : 'text-gray-500'}`}>
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-          </svg>
-          <span>{formatDate(task.due_date)}</span>
-          {isOverdue && <span className="text-red-500 font-medium">(Overdue)</span>}
-        </div>
+        <DueDateBadge dueDate={task.due_date} status={task.status} />
       </div>
 
       {/* Assigned Users */}
