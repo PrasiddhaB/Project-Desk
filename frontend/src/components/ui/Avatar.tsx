@@ -13,6 +13,31 @@ interface AvatarProps {
   status?: 'online' | 'offline';
 }
 
+/**
+ * Profile pictures come back from the Django backend as a relative
+ * path like `/media/profile_pics/foo.jpg`. The frontend runs on a
+ * different origin (localhost:5175 vs the backend on 8000), so a
+ * plain relative src resolves to the wrong host and 404s. Normalize
+ * any relative URL to the API origin.
+ */
+const API_ORIGIN = (() => {
+  const base =
+    (import.meta as any).env?.VITE_API_BASE_URL ||
+    'http://localhost:8000/api';
+  try {
+    return new URL(base).origin;
+  } catch {
+    return 'http://localhost:8000';
+  }
+})();
+
+export const resolveMediaUrl = (src?: string | null): string | undefined => {
+  if (!src) return undefined;
+  if (/^https?:\/\//i.test(src)) return src; // already absolute
+  if (src.startsWith('/')) return API_ORIGIN + src;
+  return src;
+};
+
 export const Avatar: React.FC<AvatarProps> = ({
   name,
   size = 'md',
@@ -37,20 +62,21 @@ export const Avatar: React.FC<AvatarProps> = ({
     xl: 'w-4 h-4',
   };
 
-  const getInitials = (name: string) => {
-    return name
+  const getInitials = (n: string) =>
+    n
       .split(' ')
-      .map(n => n[0])
+      .map(x => x[0])
       .join('')
       .toUpperCase()
       .slice(0, 2);
-  };
+
+  const resolvedSrc = resolveMediaUrl(src);
 
   return (
     <div className={`relative inline-block ${className}`}>
-      {src ? (
+      {resolvedSrc ? (
         <img
-          src={src}
+          src={resolvedSrc}
           alt={name}
           className={`${sizes[size]} rounded-full object-cover`}
         />
@@ -61,7 +87,7 @@ export const Avatar: React.FC<AvatarProps> = ({
           {getInitials(name)}
         </div>
       )}
-      
+
       {showStatus && (
         <span
           className={`absolute bottom-0 right-0 ${statusSizes[size]} rounded-full border-2 border-white ${

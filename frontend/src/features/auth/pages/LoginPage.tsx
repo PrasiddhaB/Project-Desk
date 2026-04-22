@@ -16,6 +16,7 @@ export const LoginPage: React.FC = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   
@@ -42,8 +43,12 @@ export const LoginPage: React.FC = () => {
     setIsLoading(true);
     
     try {
-      await login({ username: username.trim(), password });
-      navigate(from, { replace: true });
+      const result = await login({ username: username.trim(), password }, { remember: rememberMe });
+      if (result.emailVerificationRequired) {
+        navigate('/verify-email', { replace: true });
+      } else {
+        navigate(from, { replace: true });
+      }
     } catch (err: any) {
       setError(err.response?.data?.message || err.message || 'Login failed. Please try again.');
     } finally {
@@ -170,6 +175,18 @@ export const LoginPage: React.FC = () => {
               >
                 Forgot Password?
               </Link>
+            </div>
+
+            <div className="flex items-center">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="w-4 h-4 rounded border-gray-300 text-primary-500 focus:ring-primary-500"
+                />
+                <span className="text-sm text-gray-600">Remember me on this device</span>
+              </label>
             </div>
           </div>
 

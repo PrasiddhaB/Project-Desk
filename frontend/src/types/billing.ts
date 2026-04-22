@@ -9,7 +9,7 @@ export interface SubscriptionPlan {
   id: number;
   name: string;
   description: string | null;
-  price: number;  // Price in NPR
+  price: number;
   note_limit: number | null;
   private_note_limit: number | null;
   is_unlimited: boolean;
@@ -55,9 +55,12 @@ export interface Payment {
 
 export interface SubscriptionCheck {
   has_access: boolean;
-  is_admin: boolean;
+  is_admin: boolean;         // back-compat: true for admin and superadmin
+  is_superadmin?: boolean;   // new
+  role?: 'superadmin' | 'admin' | 'employee';
   plan_name?: string;
   days_remaining?: number;
+  status?: SubscriptionStatus;
 }
 
 export const SUBSCRIPTION_STATUS_OPTIONS: { value: SubscriptionStatus; label: string }[] = [

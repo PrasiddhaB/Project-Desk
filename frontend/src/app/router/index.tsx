@@ -1,5 +1,12 @@
 /**
- * Application Router - All routes with role-based protection
+ * Application Router - All routes with role-based protection.
+ *
+ * Role split:
+ *   - SuperAdminRoute: only role === 'superadmin'. Used for Manage Plans
+ *     and Manage Subscriptions (payment portal).
+ *   - AdminRoute: elevated access (admin OR superadmin). Used for
+ *     management pages like Tasks, Employees, Support Tickets.
+ *   - EmployeeRoute: only employees (rarely used).
  */
 
 import { createBrowserRouter, Navigate, Outlet } from 'react-router-dom';
@@ -8,6 +15,9 @@ import { useAuth } from '@/app/providers/AuthProvider';
 // Auth Pages
 import { LoginPage } from '@/features/auth/pages/LoginPage';
 import { RegisterPage } from '@/features/auth/pages/RegisterPage';
+import { VerifyEmailPage } from '@/features/auth/pages/VerifyEmailPage';
+import { ForgotPasswordPage } from '@/features/auth/pages/ForgotPasswordPage';
+import { ResetPasswordPage } from '@/features/auth/pages/ResetPasswordPage';
 
 // Dashboard
 import { DashboardPage } from '@/features/dashboard/pages';
@@ -74,7 +84,7 @@ import { ActivityLogPage } from '@/features/activity/pages';
 import { NotFoundPage } from '@/features/not-found/pages';
 
 /**
- * Protected Route Wrapper - Requires authentication
+ * Protected Route - any authenticated user.
  */
 const ProtectedRoute: React.FC = () => {
   const { isAuthenticated, isLoading } = useAuth();
@@ -98,12 +108,13 @@ const ProtectedRoute: React.FC = () => {
 };
 
 /**
- * Admin Route Wrapper - Requires admin role
+ * Admin Route - role is admin OR superadmin (elevated privileges).
+ * Used for management pages that both roles should access.
  */
 const AdminRoute: React.FC = () => {
   const { user } = useAuth();
 
-  if (user?.role !== 'admin') {
+  if (user?.role !== 'admin' && user?.role !== 'superadmin') {
     return <Navigate to="/dashboard" replace />;
   }
 
@@ -111,7 +122,21 @@ const AdminRoute: React.FC = () => {
 };
 
 /**
- * Employee Route Wrapper - Requires employee role
+ * SuperAdmin Route - role is strictly 'superadmin'.
+ * Used for the payment portal (Manage Plans + Manage Subscriptions).
+ */
+const SuperAdminRoute: React.FC = () => {
+  const { user } = useAuth();
+
+  if (user?.role !== 'superadmin') {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return <Outlet />;
+};
+
+/**
+ * Employee Route - role is strictly 'employee'.
  */
 const EmployeeRoute: React.FC = () => {
   const { user } = useAuth();
@@ -124,7 +149,7 @@ const EmployeeRoute: React.FC = () => {
 };
 
 /**
- * Guest Route Wrapper - Redirects authenticated users
+ * Guest Route - redirects authenticated users away from auth pages.
  */
 const GuestRoute: React.FC = () => {
   const { isAuthenticated, isLoading } = useAuth();
@@ -144,216 +169,111 @@ const GuestRoute: React.FC = () => {
   return <Outlet />;
 };
 
-/**
- * Application Router Configuration
- */
 export const router = createBrowserRouter([
-  // Guest Routes (Login, Register)
+  // Guest Routes
   {
     element: <GuestRoute />,
     children: [
-      {
-        path: '/login',
-        element: <LoginPage />,
-      },
-      {
-        path: '/register',
-        element: <RegisterPage />,
-      },
+      { path: '/login', element: <LoginPage /> },
+      { path: '/register', element: <RegisterPage /> },
+      { path: '/forgot-password', element: <ForgotPasswordPage /> },
+      { path: '/reset-password', element: <ResetPasswordPage /> },
     ],
   },
 
-  // Protected Routes (Requires Authentication)
+  // Verify email page - accessible to authenticated-but-unverified users,
+  // so it lives OUTSIDE the GuestRoute.
+  {
+    path: '/verify-email',
+    element: <VerifyEmailPage />,
+  },
+
+  // Protected Routes
   {
     element: <ProtectedRoute />,
     children: [
-      // Dashboard
-      {
-        path: '/',
-        element: <Navigate to="/dashboard" replace />,
-      },
-      {
-        path: '/dashboard',
-        element: <DashboardPage />,
-      },
+      { path: '/', element: <Navigate to="/dashboard" replace /> },
+      { path: '/dashboard', element: <DashboardPage /> },
+      { path: '/calendar', element: <CalendarPage /> },
 
-      // Calendar
-      {
-        path: '/calendar',
-        element: <CalendarPage />,
-      },
+      // My Tasks (all roles)
+      { path: '/my-tasks', element: <MyTasksPage /> },
+      { path: '/my-tasks/:id', element: <MyTaskDetailPage /> },
 
-      // My Tasks (All Users - Kanban View)
-      {
-        path: '/my-tasks',
-        element: <MyTasksPage />,
-      },
-      {
-        path: '/my-tasks/:id',
-        element: <MyTaskDetailPage />,
-      },
-
-      // Admin Only: Tasks Management
+      // Admin / SuperAdmin: Tasks Management
       {
         element: <AdminRoute />,
         children: [
-          {
-            path: '/tasks',
-            element: <TasksPage />,
-          },
-          {
-            path: '/tasks/create',
-            element: <TaskFormPage />,
-          },
-          {
-            path: '/tasks/:id',
-            element: <TaskDetailPage />,
-          },
-          {
-            path: '/tasks/:id/edit',
-            element: <TaskFormPage />,
-          },
+          { path: '/tasks', element: <TasksPage /> },
+          { path: '/tasks/create', element: <TaskFormPage /> },
+          { path: '/tasks/:id', element: <TaskDetailPage /> },
+          { path: '/tasks/:id/edit', element: <TaskFormPage /> },
         ],
       },
 
-      // Notes (All Users)
-      {
-        path: '/notes',
-        element: <NotesPage />,
-      },
-      {
-        path: '/notes/create',
-        element: <NoteFormPage />,
-      },
-      {
-        path: '/notes/private',
-        element: <PrivateNotesPage />,
-      },
-      {
-        path: '/notes/shared',
-        element: <SharedNotesPage />,
-      },
-      {
-        path: '/notes/:id',
-        element: <NoteDetailPage />,
-      },
-      {
-        path: '/notes/:id/edit',
-        element: <NoteFormPage />,
-      },
+      // Notes (all roles)
+      { path: '/notes', element: <NotesPage /> },
+      { path: '/notes/create', element: <NoteFormPage /> },
+      { path: '/notes/private', element: <PrivateNotesPage /> },
+      { path: '/notes/shared', element: <SharedNotesPage /> },
+      { path: '/notes/:id', element: <NoteDetailPage /> },
+      { path: '/notes/:id/edit', element: <NoteFormPage /> },
 
-      // Admin Only: Employees Management
+      // Admin / SuperAdmin: Employees Management
       {
         element: <AdminRoute />,
         children: [
-          {
-            path: '/employees',
-            element: <EmployeesPage />,
-          },
-          {
-            path: '/employees/:id',
-            element: <EmployeeDetailPage />,
-          },
-          {
-            path: '/employees/:id/edit',
-            element: <EmployeeFormPage />,
-          },
+          { path: '/employees', element: <EmployeesPage /> },
+          { path: '/employees/:id', element: <EmployeeDetailPage /> },
+          { path: '/employees/:id/edit', element: <EmployeeFormPage /> },
         ],
       },
 
-      // Projects (All users can view, Admin can manage)
-      {
-        path: '/projects',
-        element: <ProjectsPage />,
-      },
-      {
-        path: '/projects/:id',
-        element: <ProjectDetailPage />,
-      },
+      // Projects
+      { path: '/projects', element: <ProjectsPage /> },
+      { path: '/projects/:id', element: <ProjectDetailPage /> },
       {
         element: <AdminRoute />,
         children: [
-          {
-            path: '/projects/create',
-            element: <ProjectFormPage />,
-          },
-          {
-            path: '/projects/:id/edit',
-            element: <ProjectFormPage />,
-          },
+          { path: '/projects/create', element: <ProjectFormPage /> },
+          { path: '/projects/:id/edit', element: <ProjectFormPage /> },
         ],
       },
 
-      // Support - Contact (Employee creates ticket)
-      {
-        path: '/support',
-        element: <ContactSupportPage />,
-      },
-      {
-        path: '/support/tickets',
-        element: <MyTicketsPage />,
-      },
-      {
-        path: '/support/:id',
-        element: <TicketDetailPage />,
-      },
+      // Support
+      { path: '/support', element: <ContactSupportPage /> },
+      { path: '/support/tickets', element: <MyTicketsPage /> },
+      { path: '/support/:id', element: <TicketDetailPage /> },
 
-      // Admin Only: Support Tickets Management
+      // Admin / SuperAdmin: Support Tickets Management
       {
         element: <AdminRoute />,
         children: [
-          {
-            path: '/admin/support',
-            element: <AllTicketsPage />,
-          },
-          {
-            path: '/admin/plans',
-            element: <AdminPlansPage />,
-          },
-          {
-            path: '/admin/subscriptions',
-            element: <AdminSubscriptionsPage />,
-          },
+          { path: '/admin/support', element: <AllTicketsPage /> },
         ],
       },
 
-      // Billing (All Users)
+      // SuperAdmin ONLY: Payment portal (Manage Plans + Subscriptions)
       {
-        path: '/billing',
-        element: <BillingPage />,
+        element: <SuperAdminRoute />,
+        children: [
+          { path: '/admin/plans', element: <AdminPlansPage /> },
+          { path: '/admin/subscriptions', element: <AdminSubscriptionsPage /> },
+        ],
       },
 
-      // Notifications (All Users)
-      {
-        path: '/notifications',
-        element: <NotificationsPage />,
-      },
+      // Billing (admin + employee can subscribe; superadmin sees a no-op view)
+      { path: '/billing', element: <BillingPage /> },
 
-      // Profile (All Users)
-      {
-        path: '/profile',
-        element: <ProfilePage />,
-      },
-
-      // Team (All Users)
-      {
-        path: '/team',
-        element: <TeamPage />,
-      },
-
-      // Activity Log (All Users)
-      {
-        path: '/activity',
-        element: <ActivityLogPage />,
-      },
+      { path: '/notifications', element: <NotificationsPage /> },
+      { path: '/profile', element: <ProfilePage /> },
+      { path: '/team', element: <TeamPage /> },
+      { path: '/activity', element: <ActivityLogPage /> },
     ],
   },
 
-  // 404 Not Found
-  {
-    path: '*',
-    element: <NotFoundPage />,
-  },
+  // 404
+  { path: '*', element: <NotFoundPage /> },
 ]);
 
 export default router;

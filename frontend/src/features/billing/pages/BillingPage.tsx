@@ -1,5 +1,10 @@
 /**
- * Billing Page - Subscription plans with Khalti payment
+ * Billing Page - My Subscription + Plan picker + Cancel Subscription.
+ *
+ * Roles:
+ *   superadmin - shown a friendly "no subscription needed" card
+ *   admin      - must subscribe; can cancel own subscription
+ *   employee   - must subscribe; can cancel own subscription
  */
 
 import React, { useState, useEffect } from 'react';
@@ -11,22 +16,26 @@ import { billingApi } from '@/services/payments';
 import { SubscriptionPlan, Subscription, Payment, SUBSCRIPTION_STATUS_OPTIONS } from '@/types';
 
 export const BillingPage: React.FC = () => {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [searchParams] = useSearchParams();
   const paymentStatus = searchParams.get('payment_status');
-  
+
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [hasSubscription, setHasSubscription] = useState(false);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingPlanId, setProcessingPlanId] = useState<number | null>(null);
+  const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  const isSuperAdmin = user?.role === 'superadmin';
 
   useEffect(() => {
     fetchData();
     handlePaymentStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handlePaymentStatus = () => {
@@ -46,10 +55,11 @@ export const BillingPage: React.FC = () => {
       case 'refunded':
         setError('This transaction has been refunded.');
         break;
-      case 'error':
+      case 'error': {
         const errorMsg = searchParams.get('error');
         setError(errorMsg || 'Payment error occurred.');
         break;
+      }
     }
   };
 
@@ -57,7 +67,7 @@ export const BillingPage: React.FC = () => {
     try {
       setLoading(true);
       const [plansData, subData, paymentsData] = await Promise.all([
-        billingApi.getPlans(),
+        billingApi.getPlans().catch(() => []),
         billingApi.getMySubscription(),
         billingApi.getMyPayments().catch(() => []),
       ]);
@@ -76,11 +86,10 @@ export const BillingPage: React.FC = () => {
     try {
       setProcessingPlanId(planId);
       setError(null);
-      
+
       const response = await billingApi.initiatePayment(planId);
-      
+
       if (response.success && response.payment_url) {
-        // Show expiration warning if available
         if (response.expires_in) {
           const minutes = Math.floor(response.expires_in / 60);
           const proceed = window.confirm(
@@ -91,7 +100,6 @@ export const BillingPage: React.FC = () => {
             return;
           }
         }
-        // Redirect to Khalti payment page
         window.location.href = response.payment_url;
       } else {
         setError(response.message || 'Failed to initiate payment');
@@ -100,6 +108,29 @@ export const BillingPage: React.FC = () => {
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to initiate payment');
       setProcessingPlanId(null);
+    }
+  };
+
+  const handleCancelSubscription = async () => {
+    if (!subscription) return;
+    const confirmed = window.confirm(
+      'Are you sure you want to cancel your subscription? ' +
+      'You will keep access until the end of the current billing period.'
+    );
+    if (!confirmed) return;
+
+    try {
+      setCancelling(true);
+      setError(null);
+      const res = await billingApi.cancelMySubscription();
+      setSuccessMessage(res.message || 'Subscription cancelled successfully.');
+      // Refresh the view.
+      await fetchData();
+      await refreshUser();
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to cancel subscription');
+    } finally {
+      setCancelling(false);
     }
   };
 
@@ -115,18 +146,23 @@ export const BillingPage: React.FC = () => {
     }
   };
 
-  // Admin doesn't need subscription
-  if (user?.role === 'admin') {
+  // SuperAdmin doesn't need a subscription.
+  if (isSuperAdmin) {
     return (
       <AppLayout>
         <div className="p-6 bg-gray-50 min-h-full">
           <div className="max-w-3xl mx-auto">
             <Card className="border-0 shadow-sm text-center py-12">
-              <svg className="w-16 h-16 mx-auto mb-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <svg className="w-16 h-16 mx-auto mb-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
               </svg>
-              <h2 className="text-xl font-bold text-gray-800 mb-2">Full Access</h2>
-              <p className="text-gray-500">As an admin, you have full access to all features.</p>
+              <h2 className="text-xl font-bold text-gray-800 mb-2">No Subscription Needed</h2>
+              <p className="text-gray-500">
+                As the product owner (Super Admin), you have unrestricted access to the entire platform.
+              </p>
+              <p className="text-gray-400 text-sm mt-2">
+                Use <span className="font-medium">Manage Plans</span> and <span className="font-medium">Subscriptions</span> in the sidebar to manage customer subscriptions.
+              </p>
             </Card>
           </div>
         </div>
@@ -144,13 +180,15 @@ export const BillingPage: React.FC = () => {
     );
   }
 
+  const subActive = subscription?.status === 'active';
+  const subCancelled = subscription?.status === 'cancelled';
+
   return (
     <AppLayout>
       <div className="p-6 bg-gray-50 min-h-full">
         <div className="max-w-5xl mx-auto">
-          <h1 className="text-2xl font-bold text-gray-800 mb-6">Subscription Plans</h1>
+          <h1 className="text-2xl font-bold text-gray-800 mb-6">My Subscription</h1>
 
-          {/* Success Message */}
           {successMessage && (
             <div className="bg-green-50 border border-green-200 text-green-700 p-4 rounded-lg mb-6 flex items-center gap-3">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -160,7 +198,6 @@ export const BillingPage: React.FC = () => {
             </div>
           )}
 
-          {/* Error Message */}
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-600 p-4 rounded-lg mb-6 flex items-center gap-3">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -173,7 +210,7 @@ export const BillingPage: React.FC = () => {
           {/* Current Subscription */}
           {hasSubscription && subscription && (
             <Card className="border-0 shadow-sm mb-8 bg-gradient-to-r from-primary-50 to-primary-100">
-              <div className="flex items-start justify-between">
+              <div className="flex items-start justify-between flex-wrap gap-4">
                 <div>
                   <h2 className="text-lg font-semibold text-gray-800 mb-2">Current Subscription</h2>
                   <div className="flex items-center gap-3 mb-2">
@@ -190,19 +227,46 @@ export const BillingPage: React.FC = () => {
                     Valid until: {new Date(subscription.end_date).toLocaleDateString()}
                   </p>
                 </div>
+                {subActive && (
+                  <Button
+                    variant="outline"
+                    onClick={handleCancelSubscription}
+                    isLoading={cancelling}
+                    disabled={cancelling}
+                  >
+                    {cancelling ? 'Cancelling...' : 'Cancel Subscription'}
+                  </Button>
+                )}
               </div>
             </Card>
           )}
 
-          {/* Info for users without subscription */}
-          {!hasSubscription && (
+          {/* Cancelled notice */}
+          {subscription && subCancelled && (
+            <Card className="border-0 shadow-sm mb-8 bg-orange-50 border-l-4 border-orange-400">
+              <div className="flex items-center gap-3">
+                <svg className="w-6 h-6 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div>
+                  <h3 className="font-semibold text-gray-800">Subscription cancelled</h3>
+                  <p className="text-sm text-gray-600">
+                    Access will continue until {new Date(subscription.end_date).toLocaleDateString()}.
+                    You can re-subscribe at any time.
+                  </p>
+                </div>
+              </div>
+            </Card>
+          )}
+
+          {!hasSubscription && !subscription && (
             <Card className="border-0 shadow-sm mb-8 bg-yellow-50 border-l-4 border-yellow-400">
               <div className="flex items-center gap-3">
                 <svg className="w-6 h-6 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <div>
-                  <h3 className="font-semibold text-gray-800">Subscribe to Access Notes</h3>
+                  <h3 className="font-semibold text-gray-800">Subscribe to unlock features</h3>
                   <p className="text-sm text-gray-600">Choose a plan below to unlock Private Notes and Shared Notes features.</p>
                 </div>
               </div>
@@ -210,35 +274,37 @@ export const BillingPage: React.FC = () => {
           )}
 
           {/* Plans */}
+          <h2 className="text-lg font-semibold text-gray-800 mb-4">Available Plans</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
             {plans.map((plan, index) => {
-              const isCurrentPlan = subscription?.plan?.id === plan.id;
+              const isCurrentPlan = subscription?.plan?.id === plan.id && subActive;
               const isProcessing = processingPlanId === plan.id;
-              const isHighlighted = index === plans.length - 1; // Highlight last (premium) plan
+              const isHighlighted = index === plans.length - 1;
+              // Allow resubscribing when current sub is not active
+              const canSubscribe = !subActive;
 
               return (
-                <Card 
-                  key={plan.id} 
+                <Card
+                  key={plan.id}
                   className={`border-0 shadow-sm relative ${
                     isCurrentPlan ? 'ring-2 ring-primary-500' : ''
-                  } ${isHighlighted ? 'ring-2 ring-indigo-500' : ''}`}
+                  } ${isHighlighted && !isCurrentPlan ? 'ring-2 ring-indigo-500' : ''}`}
                 >
                   {isHighlighted && !isCurrentPlan && (
                     <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-indigo-500 text-white text-xs px-3 py-1 rounded-full">
                       Recommended
                     </div>
                   )}
-                  
                   {isCurrentPlan && (
                     <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-primary-500 text-white text-xs px-3 py-1 rounded-full">
                       Current Plan
                     </div>
                   )}
-                  
+
                   <div className="pt-4">
                     <h3 className="text-xl font-bold text-gray-800 mb-2">{plan.name}</h3>
                     <p className="text-gray-500 text-sm mb-4">{plan.description}</p>
-                    
+
                     <div className="mb-6">
                       <span className="text-3xl font-bold text-gray-800">Rs. {plan.price}</span>
                       <span className="text-gray-500">/month</span>
@@ -250,8 +316,8 @@ export const BillingPage: React.FC = () => {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>
                         <span>
-                          {plan.is_unlimited 
-                            ? 'Unlimited Shared Notes' 
+                          {plan.is_unlimited
+                            ? 'Unlimited Shared Notes'
                             : `${plan.note_limit || 0} Shared Notes`}
                         </span>
                       </li>
@@ -260,8 +326,8 @@ export const BillingPage: React.FC = () => {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>
                         <span>
-                          {plan.is_unlimited 
-                            ? 'Unlimited Private Notes' 
+                          {plan.is_unlimited
+                            ? 'Unlimited Private Notes'
                             : `${plan.private_note_limit || 0} Private Notes`}
                         </span>
                       </li>
@@ -277,12 +343,8 @@ export const BillingPage: React.FC = () => {
                       <Button className="w-full" disabled>
                         Current Plan
                       </Button>
-                    ) : hasSubscription ? (
-                      <Button 
-                        className="w-full" 
-                        variant="outline"
-                        disabled
-                      >
+                    ) : !canSubscribe ? (
+                      <Button className="w-full" variant="outline" disabled>
                         Already Subscribed
                       </Button>
                     ) : (

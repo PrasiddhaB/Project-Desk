@@ -60,13 +60,17 @@ export const RegisterPage: React.FC = () => {
     setIsLoading(true);
     
     try {
-      await register({
+      const result = await register({
         full_name: fullName.trim(),
         username: username.trim(),
         email: email.trim(),
         password,
       });
-      navigate('/dashboard', { replace: true });
+      if (result.emailVerificationRequired) {
+        navigate('/verify-email', { replace: true });
+      } else {
+        navigate('/dashboard', { replace: true });
+      }
     } catch (err: any) {
       const errorMessage = err.response?.data?.message || 
                           err.response?.data?.errors?.username?.[0] ||

@@ -108,7 +108,7 @@ export const EmployeesPage: React.FC = () => {
         if (formData.password) {
           payload.password = formData.password;
         }
-        await client.put(`/auth/users/${editingUser.id}/`, payload);
+        await client.put(`/auth/admin/users/${editingUser.id}/`, payload);
       } else {
         // Create - password required
         if (!formData.password) {
@@ -117,7 +117,7 @@ export const EmployeesPage: React.FC = () => {
           return;
         }
         payload.password = formData.password;
-        await client.post('/auth/register/', payload);
+        await client.post('/auth/admin/users/create/', payload);
       }
 
       setShowModal(false);
@@ -134,7 +134,7 @@ export const EmployeesPage: React.FC = () => {
     if (!window.confirm(`Are you sure you want to delete "${user.full_name}"? This action cannot be undone.`)) return;
 
     try {
-      await client.delete(`/auth/users/${user.id}/`);
+      await client.delete(`/auth/admin/users/${user.id}/`);
       fetchEmployees();
     } catch (err: any) {
       alert(err.response?.data?.message || 'Failed to delete user');
@@ -143,7 +143,7 @@ export const EmployeesPage: React.FC = () => {
 
   const handleToggleActive = async (user: User) => {
     try {
-      await client.patch(`/auth/users/${user.id}/`, {
+      await client.patch(`/auth/admin/users/${user.id}/`, {
         is_active: !user.is_active,
       });
       fetchEmployees();

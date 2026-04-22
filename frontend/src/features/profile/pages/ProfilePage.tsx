@@ -130,9 +130,12 @@ export const ProfilePage: React.FC = () => {
                 <h2 className="text-xl font-semibold text-gray-800">{user?.full_name}</h2>
                 <p className="text-gray-500">@{user?.username}</p>
                 <span className={`inline-block mt-1 px-2 py-1 text-xs rounded-full ${
-                  user?.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                  user?.role === 'superadmin' ? 'bg-purple-100 text-purple-700' :
+                  user?.role === 'admin' ? 'bg-blue-100 text-blue-700' :
+                  'bg-emerald-100 text-emerald-700'
                 }`}>
-                  {user?.role === 'admin' ? 'Administrator' : 'Employee'}
+                  {user?.role === 'superadmin' ? 'Super Admin' :
+                   user?.role === 'admin' ? 'Admin' : 'Employee'}
                 </span>
                 <div className="flex gap-2 mt-2">
                   <button

@@ -1,25 +1,28 @@
 /**
  * Protected Route Component
- * Redirects to login if user is not authenticated
+ * Redirects to login if user is not authenticated.
+ * Supports required role (single) or required roles (array).
  */
 
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/app/providers/AuthProvider';
+import type { UserRole } from '@/features/auth/types';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
-  requiredRole?: 'admin' | 'employee';
+  requiredRole?: UserRole;
+  requiredRoles?: UserRole[];
 }
 
-export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ 
-  children, 
-  requiredRole 
+export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
+  children,
+  requiredRole,
+  requiredRoles,
 }) => {
   const { isAuthenticated, isLoading, user } = useAuth();
   const location = useLocation();
 
-  // Show loading state while checking authentication
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -31,13 +34,12 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
     );
   }
 
-  // Redirect to login if not authenticated
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  // Check for required role
-  if (requiredRole && user?.role !== requiredRole) {
+  const allowed = requiredRoles ?? (requiredRole ? [requiredRole] : null);
+  if (allowed && user && !allowed.includes(user.role)) {
     return <Navigate to="/dashboard" replace />;
   }
 

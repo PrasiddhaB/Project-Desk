@@ -18,7 +18,7 @@ export const NotesPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const paymentStatus = searchParams.get('payment_status');
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'superadmin';
 
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);

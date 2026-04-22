@@ -2,7 +2,7 @@
  * User Types
  */
 
-export type UserRole = 'admin' | 'employee';
+export type UserRole = 'superadmin' | 'admin' | 'employee';
 
 export interface User {
   id: number;
@@ -12,6 +12,7 @@ export interface User {
   phone?: string;
   role: UserRole;
   is_active: boolean;
+  is_email_verified?: boolean;
   profile_pic?: string;
   profile_pic_url?: string;
   is_online?: boolean;
