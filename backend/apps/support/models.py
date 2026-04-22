@@ -93,4 +93,4 @@ class TicketReply(models.Model):
     
     @property
     def is_admin(self):
-        return self.user.role == 'admin'
+        return self.user.role in ('admin', 'superadmin')

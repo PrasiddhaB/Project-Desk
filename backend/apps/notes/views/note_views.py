@@ -61,13 +61,17 @@ class NoteViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """
         Return notes owned by user OR shared with user.
+        Superadmin sees every note globally.
         """
         user = self.request.user
         
-        # Own notes + shared notes
-        queryset = Note.objects.filter(
-            Q(user=user) | Q(shares__shared_with=user)
-        ).distinct().select_related('user').prefetch_related('shares')
+        if user.role == 'superadmin':
+            queryset = Note.objects.all().select_related('user').prefetch_related('shares')
+        else:
+            # Own notes + shared notes
+            queryset = Note.objects.filter(
+                Q(user=user) | Q(shares__shared_with=user)
+            ).distinct().select_related('user').prefetch_related('shares')
         
         # Filter by status
         status_filter = self.request.query_params.get('status')
@@ -101,6 +105,13 @@ class NoteViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         note = serializer.save()
         
+        from apps.common.utils import log_activity
+        log_activity(
+            user=request.user, action='note_created',
+            description=f'Created note "{note.title}"',
+            target_type='note', target_id=note.id,
+        )
+        
         response_serializer = NoteDetailSerializer(note, context={'request': request})
         return Response({
             'message': 'Note created successfully',
@@ -122,6 +133,13 @@ class NoteViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         note = serializer.save()
         
+        from apps.common.utils import log_activity
+        log_activity(
+            user=request.user, action='note_updated',
+            description=f'Updated note "{note.title}"',
+            target_type='note', target_id=note.id,
+        )
+        
         response_serializer = NoteDetailSerializer(note, context={'request': request})
         return Response({
             'message': 'Note updated successfully',
@@ -138,7 +156,16 @@ class NoteViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_403_FORBIDDEN)
         
         title = instance.title
+        nid = instance.id
         instance.delete()
+        
+        from apps.common.utils import log_activity
+        log_activity(
+            user=request.user, action='note_deleted',
+            description=f'Deleted note "{title}"',
+            target_type='note', target_id=nid,
+        )
+        
         return Response({
             'message': f'Note "{title}" deleted successfully'
         })
@@ -218,6 +245,14 @@ class NoteViewSet(viewsets.ModelViewSet):
                 can_edit=can_edit
             )
             message = f'Note shared with {shared_with_user.full_name}'
+        
+        from apps.common.utils import log_activity
+        log_activity(
+            user=request.user, action='note_shared',
+            description=f'Shared note "{note.title}" with {shared_with_user.full_name or shared_with_user.username}',
+            target_type='note', target_id=note.id,
+            metadata={'shared_with_id': shared_with_user.id, 'can_edit': can_edit},
+        )
         
         response_serializer = NoteDetailSerializer(note, context={'request': request})
         return Response({

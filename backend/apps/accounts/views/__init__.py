@@ -23,6 +23,11 @@ from .api import (
     ActivityLogView,
     TeamListCreateView,
     TeamDetailView,
+    # Phase 2: email verification + forgot password via email
+    VerifyEmailView,
+    ResendVerificationCodeView,
+    ForgotPasswordEmailView,
+    ResetPasswordEmailView,
 )
 
 __all__ = [
@@ -47,4 +52,8 @@ __all__ = [
     'ActivityLogView',
     'TeamListCreateView',
     'TeamDetailView',
+    'VerifyEmailView',
+    'ResendVerificationCodeView',
+    'ForgotPasswordEmailView',
+    'ResetPasswordEmailView',
 ]

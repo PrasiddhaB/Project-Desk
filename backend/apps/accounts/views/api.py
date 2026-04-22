@@ -9,6 +9,7 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework_simplejwt.views import TokenRefreshView
 from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
 from django.contrib.auth.hashers import make_password, check_password
+from django.utils import timezone
 
 from apps.accounts.serializers import (
     RegisterRequestSerializer,
@@ -17,7 +18,17 @@ from apps.accounts.serializers import (
     AuthResponseSerializer
 )
 from apps.accounts.services import AuthService
-from apps.accounts.models import User, SecurityQuestion, PasswordResetToken
+from apps.accounts.services.email_service import (
+    send_verification_code,
+    send_password_reset_code,
+)
+from apps.accounts.models import (
+    User,
+    SecurityQuestion,
+    PasswordResetToken,
+    EmailVerificationCode,
+    PasswordResetCode,
+)
 
 
 class RegisterView(APIView):
@@ -25,6 +36,10 @@ class RegisterView(APIView):
     API endpoint for user registration.
     
     POST /api/auth/register/
+
+    Always sends a 6-digit verification code to the new user's email.
+    The account is created immediately (soft gate) - the user can log
+    in but `is_email_verified` stays False until they verify the code.
     """
     permission_classes = [AllowAny]
     
@@ -45,14 +60,31 @@ class RegisterView(APIView):
                         answer=make_password(sq['answer'].lower().strip())
                     )
             
+            # Issue and email a 6-digit verification code.
+            code_obj = EmailVerificationCode.issue_for(user)
+            send_verification_code(user, code_obj.code)
+            
+            # Activity log
+            from apps.common.utils import log_activity
+            log_activity(
+                user=user,
+                action='user_registered',
+                description=f'{user.full_name or user.username} registered a new account',
+                target_type='user', target_id=user.id,
+            )
+            
             auth_data = AuthService.get_auth_response(user)
             response_serializer = AuthResponseSerializer(auth_data)
+            payload = response_serializer.data
+            # Surface the unverified state so the frontend can route
+            # straight to the verify-email page.
+            payload['email_verification_required'] = True
             
             return Response(
                 {
                     'success': True,
-                    'message': 'Registration successful',
-                    'data': response_serializer.data
+                    'message': 'Registration successful. A verification code has been emailed to you.',
+                    'data': payload,
                 },
                 status=status.HTTP_201_CREATED
             )
@@ -72,6 +104,11 @@ class LoginView(APIView):
     API endpoint for user login.
     
     POST /api/auth/login/
+
+    Soft-gate behavior: unverified-email users can still log in (so
+    the frontend can show them the verify screen). If the email is
+    unverified, a fresh 6-digit code is emailed and the response
+    includes `email_verification_required: True`.
     """
     permission_classes = [AllowAny]
     
@@ -86,12 +123,36 @@ class LoginView(APIView):
             user = serializer.validated_data['user']
             auth_data = AuthService.get_auth_response(user)
             response_serializer = AuthResponseSerializer(auth_data)
+            payload = response_serializer.data
+            
+            # Activity log: login
+            from apps.common.utils import log_activity
+            log_activity(
+                user=user,
+                action='user_login',
+                description=f'{user.full_name or user.username} logged in',
+                target_type='user', target_id=user.id,
+            )
+            
+            # If the user's email is unverified, issue a code so the
+            # frontend can prompt them for it. Superadmin is exempt -
+            # the original product-owner account shouldn't be locked
+            # out by a verification loop.
+            needs_verify = (
+                not user.is_email_verified
+                and user.role != 'superadmin'
+            )
+            if needs_verify:
+                code_obj = EmailVerificationCode.issue_for(user)
+                send_verification_code(user, code_obj.code)
+            
+            payload['email_verification_required'] = needs_verify
             
             return Response(
                 {
                     'success': True,
                     'message': 'Login successful',
-                    'data': response_serializer.data
+                    'data': payload,
                 },
                 status=status.HTTP_200_OK
             )
@@ -255,7 +316,7 @@ class DashboardView(APIView):
         user = request.user
         today = timezone.now().date()
         
-        if user.role == 'admin':
+        if user.role in ('admin', 'superadmin'):
             # Admin sees all stats
             tasks = Task.objects.all()
             notes = Note.objects.all()
@@ -332,6 +393,13 @@ class ProfileUpdateView(APIView):
             user.phone = data['phone']
         
         user.save()
+        
+        from apps.common.utils import log_activity
+        log_activity(
+            user=user, action='profile_updated',
+            description=f'{user.full_name or user.username} updated their profile',
+            target_type='user', target_id=user.id,
+        )
         
         serializer = UserResponseSerializer(user)
         return Response({
@@ -550,7 +618,7 @@ class AdminUserListView(APIView):
     permission_classes = [IsAuthenticated]
     
     def get(self, request):
-        if request.user.role != 'admin':
+        if request.user.role not in ('admin', 'superadmin'):
             return Response({
                 'success': False,
                 'message': 'Admin access required'
@@ -598,7 +666,7 @@ class AdminUserDetailView(APIView):
             return None
     
     def get(self, request, pk):
-        if request.user.role != 'admin':
+        if request.user.role not in ('admin', 'superadmin'):
             return Response({
                 'success': False,
                 'message': 'Admin access required'
@@ -618,7 +686,7 @@ class AdminUserDetailView(APIView):
         })
     
     def put(self, request, pk):
-        if request.user.role != 'admin':
+        if request.user.role not in ('admin', 'superadmin'):
             return Response({
                 'success': False,
                 'message': 'Admin access required'
@@ -656,8 +724,12 @@ class AdminUserDetailView(APIView):
             'data': serializer.data
         })
     
+    def patch(self, request, pk):
+        """PATCH behaves the same as PUT - partial update."""
+        return self.put(request, pk)
+    
     def delete(self, request, pk):
-        if request.user.role != 'admin':
+        if request.user.role not in ('admin', 'superadmin'):
             return Response({
                 'success': False,
                 'message': 'Admin access required'
@@ -691,7 +763,7 @@ class AdminCreateUserView(APIView):
     permission_classes = [IsAuthenticated]
     
     def post(self, request):
-        if request.user.role != 'admin':
+        if request.user.role not in ('admin', 'superadmin'):
             return Response({
                 'success': False,
                 'message': 'Admin access required'
@@ -847,7 +919,7 @@ class ActivityLogView(APIView):
         
         user = request.user
         
-        if user.role == 'admin':
+        if user.role in ('admin', 'superadmin'):
             logs = ActivityLog.objects.all()
         else:
             logs = ActivityLog.objects.filter(user=user)
@@ -890,39 +962,46 @@ class TeamListCreateView(APIView):
     permission_classes = [IsAuthenticated]
     
     def get(self, request):
-        from apps.accounts.team_models import Team
-        teams = Team.objects.prefetch_related('members').all()
-        
-        data = []
-        for team in teams:
-            members = team.members.all()
-            data.append({
-                'id': team.id,
-                'name': team.name,
-                'description': team.description,
-                'color': team.color,
-                'member_count': members.count(),
-                'members': [
-                    {
-                        'id': m.id,
-                        'full_name': m.full_name,
-                        'username': m.username,
-                        'profile_pic_url': m.profile_pic_url,
-                        'is_online': m.is_online,
-                    }
-                    for m in members[:10]
-                ],
-                'created_at': team.created_at.isoformat(),
+        try:
+            from apps.accounts.team_models import Team
+            teams = Team.objects.prefetch_related('members').all()
+            
+            data = []
+            for team in teams:
+                members = team.members.all()
+                data.append({
+                    'id': team.id,
+                    'name': team.name,
+                    'description': team.description,
+                    'color': team.color,
+                    'member_count': members.count(),
+                    'members': [
+                        {
+                            'id': m.id,
+                            'full_name': m.full_name,
+                            'username': m.username,
+                            'profile_pic_url': m.profile_pic_url,
+                            'is_online': m.is_online,
+                        }
+                        for m in members[:10]
+                    ],
+                    'created_at': team.created_at.isoformat(),
+                })
+            
+            return Response({
+                'success': True,
+                'count': len(data),
+                'data': data
             })
-        
-        return Response({
-            'success': True,
-            'count': len(data),
-            'data': data
-        })
+        except Exception:
+            return Response({
+                'success': True,
+                'count': 0,
+                'data': []
+            })
     
     def post(self, request):
-        if request.user.role != 'admin':
+        if request.user.role not in ('admin', 'superadmin'):
             return Response({'success': False, 'message': 'Admin only'}, status=status.HTTP_403_FORBIDDEN)
         
         from apps.accounts.team_models import Team
@@ -978,7 +1057,7 @@ class TeamDetailView(APIView):
         })
     
     def put(self, request, pk):
-        if request.user.role != 'admin':
+        if request.user.role not in ('admin', 'superadmin'):
             return Response({'success': False, 'message': 'Admin only'}, status=status.HTTP_403_FORBIDDEN)
         
         from apps.accounts.team_models import Team
@@ -1001,7 +1080,7 @@ class TeamDetailView(APIView):
         return Response({'success': True, 'message': 'Team updated'})
     
     def delete(self, request, pk):
-        if request.user.role != 'admin':
+        if request.user.role not in ('admin', 'superadmin'):
             return Response({'success': False, 'message': 'Admin only'}, status=status.HTTP_403_FORBIDDEN)
         
         from apps.accounts.team_models import Team
@@ -1012,3 +1091,323 @@ class TeamDetailView(APIView):
         
         team.delete()
         return Response({'success': True, 'message': 'Team deleted'})
+
+
+# ===========================================================================
+# EMAIL VERIFICATION (Phase 2)
+# ===========================================================================
+
+class VerifyEmailView(APIView):
+    """
+    Verify a 6-digit email verification code.
+
+    POST /api/auth/verify-email/
+    Body: {"code": "123456"}
+
+    Authenticated endpoint - the user is identified by their JWT.
+    On success, sets `is_email_verified=True`.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        code = str(request.data.get('code', '')).strip()
+        if not code or not code.isdigit() or len(code) != 6:
+            return Response(
+                {'success': False, 'message': 'A 6-digit code is required'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = request.user
+        if user.is_email_verified:
+            return Response(
+                {'success': True, 'message': 'Email already verified'},
+                status=status.HTTP_200_OK,
+            )
+
+        # Find the most recent unused code for this user.
+        code_obj = (
+            EmailVerificationCode.objects
+            .filter(user=user, used=False)
+            .order_by('-created_at')
+            .first()
+        )
+        if not code_obj:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'No active verification code. Please request a new one.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Expired
+        if code_obj.expires_at < timezone.now():
+            return Response(
+                {
+                    'success': False,
+                    'message': 'Verification code expired. Please request a new one.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Too many attempts
+        if code_obj.attempts >= 5:
+            code_obj.used = True
+            code_obj.save(update_fields=['used'])
+            return Response(
+                {
+                    'success': False,
+                    'message': 'Too many incorrect attempts. Please request a new code.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Incorrect code
+        if code_obj.code != code:
+            code_obj.attempts += 1
+            code_obj.save(update_fields=['attempts'])
+            remaining = max(0, 5 - code_obj.attempts)
+            return Response(
+                {
+                    'success': False,
+                    'message': f'Incorrect code. {remaining} attempt(s) remaining.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Success
+        code_obj.used = True
+        code_obj.save(update_fields=['used'])
+        user.is_email_verified = True
+        user.save(update_fields=['is_email_verified'])
+
+        return Response(
+            {
+                'success': True,
+                'message': 'Email verified successfully',
+                'data': UserResponseSerializer(user).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class ResendVerificationCodeView(APIView):
+    """
+    Resend the email verification code.
+
+    POST /api/auth/resend-verification/
+
+    Rate-limited to one fresh code every 60 seconds per user.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        if user.is_email_verified:
+            return Response(
+                {'success': True, 'message': 'Email already verified'},
+                status=status.HTTP_200_OK,
+            )
+
+        # Cooldown: if the most recent code was issued < 60s ago, block.
+        from datetime import timedelta
+        latest = (
+            EmailVerificationCode.objects
+            .filter(user=user)
+            .order_by('-created_at')
+            .first()
+        )
+        if latest and latest.created_at > timezone.now() - timedelta(seconds=60):
+            wait = 60 - int((timezone.now() - latest.created_at).total_seconds())
+            return Response(
+                {
+                    'success': False,
+                    'message': f'Please wait {wait} seconds before requesting another code.',
+                    'retry_after_seconds': wait,
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        code_obj = EmailVerificationCode.issue_for(user)
+        sent = send_verification_code(user, code_obj.code)
+        return Response(
+            {
+                'success': True,
+                'message': (
+                    'A new verification code has been sent to your email.'
+                    if sent else
+                    'Verification code generated (email delivery may have failed; check server logs).'
+                ),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# ===========================================================================
+# FORGOT PASSWORD (Phase 2 - email-based with 6-digit code)
+# ===========================================================================
+
+class ForgotPasswordEmailView(APIView):
+    """
+    Initiate password reset via email.
+
+    POST /api/auth/forgot-password-email/
+    Body: {"email": "user@example.com"}
+
+    Always returns 200 whether or not the email exists, to avoid
+    leaking account presence (standard security practice).
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = str(request.data.get('email', '')).strip().lower()
+        if not email:
+            return Response(
+                {'success': False, 'message': 'Email is required'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = User.objects.filter(email__iexact=email).first()
+        if user:
+            # Enforce a 60-second cooldown.
+            from datetime import timedelta
+            latest = (
+                PasswordResetCode.objects
+                .filter(user=user)
+                .order_by('-created_at')
+                .first()
+            )
+            cooldown_ok = (
+                not latest
+                or latest.created_at <= timezone.now() - timedelta(seconds=60)
+            )
+            if cooldown_ok:
+                code_obj = PasswordResetCode.issue_for(user)
+                send_password_reset_code(user, code_obj.code)
+
+        # Always a positive response (don't leak whether the email is registered).
+        return Response(
+            {
+                'success': True,
+                'message': (
+                    'If an account with that email exists, a reset code has been sent. '
+                    'Please check your inbox (and spam folder).'
+                ),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class ResetPasswordEmailView(APIView):
+    """
+    Complete password reset with email + code + new password.
+
+    POST /api/auth/reset-password-email/
+    Body: {
+        "email": "user@example.com",
+        "code": "123456",
+        "new_password": "newpass"
+    }
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = str(request.data.get('email', '')).strip().lower()
+        code = str(request.data.get('code', '')).strip()
+        new_password = request.data.get('new_password', '')
+
+        if not email or not code or not new_password:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'Email, code, and new password are required.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not code.isdigit() or len(code) != 6:
+            return Response(
+                {'success': False, 'message': 'Code must be 6 digits.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if len(new_password) < 6:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'Password must be at least 6 characters.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = User.objects.filter(email__iexact=email).first()
+        if not user:
+            return Response(
+                {'success': False, 'message': 'Invalid email or code.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        code_obj = (
+            PasswordResetCode.objects
+            .filter(user=user, used=False)
+            .order_by('-created_at')
+            .first()
+        )
+        if not code_obj:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'No active reset code. Please request a new one.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if code_obj.expires_at < timezone.now():
+            return Response(
+                {
+                    'success': False,
+                    'message': 'Reset code expired. Please request a new one.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if code_obj.attempts >= 5:
+            code_obj.used = True
+            code_obj.save(update_fields=['used'])
+            return Response(
+                {
+                    'success': False,
+                    'message': 'Too many incorrect attempts. Please request a new code.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if code_obj.code != code:
+            code_obj.attempts += 1
+            code_obj.save(update_fields=['attempts'])
+            remaining = max(0, 5 - code_obj.attempts)
+            return Response(
+                {
+                    'success': False,
+                    'message': f'Incorrect code. {remaining} attempt(s) remaining.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Success - reset the password.
+        user.set_password(new_password)
+        # Resetting via email is itself a form of verification.
+        if not user.is_email_verified:
+            user.is_email_verified = True
+        user.save()
+
+        code_obj.used = True
+        code_obj.save(update_fields=['used'])
+
+        return Response(
+            {
+                'success': True,
+                'message': 'Password has been reset. You can now log in with your new password.',
+            },
+            status=status.HTTP_200_OK,
+        )

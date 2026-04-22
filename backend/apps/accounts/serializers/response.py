@@ -9,7 +9,7 @@ class UserResponseSerializer(serializers.ModelSerializer):
     """Serializer for user response data."""
     
     is_online = serializers.BooleanField(read_only=True)
-    profile_pic_url = serializers.CharField(read_only=True)
+    profile_pic_url = serializers.SerializerMethodField()
     
     class Meta:
         model = User
@@ -24,12 +24,27 @@ class UserResponseSerializer(serializers.ModelSerializer):
             'profile_pic_url',
             'is_active',
             'is_welcomed',
+            'is_email_verified',
             'is_online',
             'last_active',
             'created_at',
-            'updated_at'
+            'updated_at',
         ]
         read_only_fields = fields
+    
+    def get_profile_pic_url(self, obj):
+        """
+        Return an ABSOLUTE URL for the profile picture so the frontend
+        (served from a different port) can load it directly.
+        Falls back to the relative URL if there's no request context.
+        """
+        if not obj.profile_pic:
+            return None
+        url = obj.profile_pic.url
+        request = self.context.get('request') if hasattr(self, 'context') else None
+        if request is not None:
+            return request.build_absolute_uri(url)
+        return url
 
 
 class AuthResponseSerializer(serializers.Serializer):
@@ -42,11 +57,14 @@ class AuthResponseSerializer(serializers.Serializer):
     def to_representation(self, instance):
         """Format the response data."""
         return {
-            'user': UserResponseSerializer(instance['user']).data,
+            'user': UserResponseSerializer(
+                instance['user'],
+                context=self.context,
+            ).data,
             'tokens': {
                 'access': instance['access'],
-                'refresh': instance['refresh']
-            }
+                'refresh': instance['refresh'],
+            },
         }
 
 

@@ -24,6 +24,10 @@ from apps.accounts.views import (
     ActivityLogView,
     TeamListCreateView,
     TeamDetailView,
+    VerifyEmailView,
+    ResendVerificationCodeView,
+    ForgotPasswordEmailView,
+    ResetPasswordEmailView,
 )
 
 app_name = 'accounts'
@@ -36,13 +40,21 @@ urlpatterns = [
     path('me/', MeView.as_view(), name='me'),
     path('token/refresh/', CustomTokenRefreshView.as_view(), name='token_refresh'),
     
+    # Email verification (Phase 2)
+    path('verify-email/', VerifyEmailView.as_view(), name='verify_email'),
+    path('resend-verification/', ResendVerificationCodeView.as_view(), name='resend_verification'),
+    
+    # Forgot password via email (Phase 2)
+    path('forgot-password-email/', ForgotPasswordEmailView.as_view(), name='forgot_password_email'),
+    path('reset-password-email/', ResetPasswordEmailView.as_view(), name='reset_password_email'),
+    
     # Profile
     path('profile/', ProfileUpdateView.as_view(), name='profile'),
     path('profile/picture/', ProfilePicUploadView.as_view(), name='profile_pic'),
     path('mark-welcomed/', MarkWelcomedView.as_view(), name='mark_welcomed'),
     path('security-questions/', SecurityQuestionsView.as_view(), name='security_questions'),
     
-    # Password Reset
+    # Legacy: security-question password reset (kept for backward compat)
     path('forgot-password/', ForgotPasswordView.as_view(), name='forgot_password'),
     path('verify-security-answers/', VerifySecurityAnswersView.as_view(), name='verify_security_answers'),
     path('reset-password/', ResetPasswordView.as_view(), name='reset_password'),

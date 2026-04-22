@@ -13,7 +13,7 @@ class IsAdminUser(permissions.BasePermission):
         return (
             request.user and 
             request.user.is_authenticated and 
-            request.user.role == 'admin'
+            request.user.role in ('admin', 'superadmin')
         )
 
 
@@ -28,7 +28,7 @@ class IsAdminOrReadOnly(permissions.BasePermission):
         return (
             request.user and 
             request.user.is_authenticated and 
-            request.user.role == 'admin'
+            request.user.role in ('admin', 'superadmin')
         )
 
 
@@ -44,7 +44,7 @@ class IsTaskAssigneeOrAdmin(permissions.BasePermission):
     
     def has_object_permission(self, request, view, obj):
         # Admin has full access
-        if request.user.role == 'admin':
+        if request.user.role in ('admin', 'superadmin'):
             return True
         
         # For safe methods, check if user is assigned
@@ -70,6 +70,6 @@ class CanViewTask(permissions.BasePermission):
         return request.user and request.user.is_authenticated
     
     def has_object_permission(self, request, view, obj):
-        if request.user.role == 'admin':
+        if request.user.role in ('admin', 'superadmin'):
             return True
         return request.user in obj.assigned_to.all()

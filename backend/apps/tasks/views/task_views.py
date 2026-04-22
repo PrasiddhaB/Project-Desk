@@ -92,7 +92,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         queryset = Task.objects.select_related('created_by').prefetch_related('assigned_to')
         
         # If not admin, only show assigned tasks
-        if user.role != 'admin':
+        if user.role not in ('admin', 'superadmin'):
             queryset = queryset.filter(assigned_to=user)
         
         # Apply filters from query params
@@ -109,7 +109,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         if priority_filter:
             queryset = queryset.filter(priority=priority_filter)
         
-        if assignee_filter and user.role == 'admin':
+        if assignee_filter and user.role in ('admin', 'superadmin'):
             queryset = queryset.filter(assigned_to__id=assignee_filter)
         
         if project_filter:
@@ -133,6 +133,13 @@ class TaskViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         task = serializer.save()
         
+        from apps.common.utils import log_activity
+        log_activity(
+            user=request.user, action='task_created',
+            description=f'Created task "{task.title}"',
+            target_type='task', target_id=task.id,
+        )
+        
         # Return detailed response
         response_serializer = TaskDetailSerializer(task)
         return Response(
@@ -151,6 +158,13 @@ class TaskViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         task = serializer.save()
         
+        from apps.common.utils import log_activity
+        log_activity(
+            user=request.user, action='task_updated',
+            description=f'Updated task "{task.title}"',
+            target_type='task', target_id=task.id,
+        )
+        
         response_serializer = TaskDetailSerializer(task)
         return Response({
             'message': 'Task updated successfully',
@@ -161,7 +175,16 @@ class TaskViewSet(viewsets.ModelViewSet):
         """Delete a task."""
         instance = self.get_object()
         task_title = instance.title
+        tid = instance.id
         instance.delete()
+        
+        from apps.common.utils import log_activity
+        log_activity(
+            user=request.user, action='task_deleted',
+            description=f'Deleted task "{task_title}"',
+            target_type='task', target_id=tid,
+        )
+        
         return Response(
             {'message': f'Task "{task_title}" deleted successfully'},
             status=status.HTTP_200_OK
@@ -248,7 +271,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         """
         user = request.user
         
-        if user.role == 'admin':
+        if user.role in ('admin', 'superadmin'):
             queryset = Task.objects.all()
         else:
             queryset = Task.objects.filter(assigned_to=user)
@@ -277,7 +300,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         user = request.user
         today = timezone.now().date()
         
-        if user.role == 'admin':
+        if user.role in ('admin', 'superadmin'):
             queryset = Task.objects.all()
         else:
             queryset = Task.objects.filter(assigned_to=user)
@@ -300,7 +323,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         user = request.user
         today = timezone.now().date()
         
-        if user.role == 'admin':
+        if user.role in ('admin', 'superadmin'):
             queryset = Task.objects.all()
         else:
             queryset = Task.objects.filter(assigned_to=user)
@@ -329,7 +352,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         start_date = request.query_params.get('start_date')
         end_date = request.query_params.get('end_date')
         
-        if user.role == 'admin':
+        if user.role in ('admin', 'superadmin'):
             queryset = Task.objects.all()
         else:
             queryset = Task.objects.filter(assigned_to=user)
@@ -405,7 +428,7 @@ class TaskViewSet(viewsets.ModelViewSet):
             entries = TaskTimeEntry.objects.filter(task=task).select_related('user')
             
             # Filter by user if not admin
-            if request.user.role != 'admin':
+            if request.user.role not in ('admin', 'superadmin'):
                 entries = entries.filter(user=request.user)
             
             serializer = TimeEntrySerializer(entries, many=True)
@@ -448,7 +471,7 @@ class TaskViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_404_NOT_FOUND)
         
         # Only owner or admin can delete
-        if entry.user != request.user and request.user.role != 'admin':
+        if entry.user != request.user and request.user.role not in ('admin', 'superadmin'):
             return Response({
                 'message': 'Permission denied'
             }, status=status.HTTP_403_FORBIDDEN)

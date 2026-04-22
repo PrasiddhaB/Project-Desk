@@ -5,6 +5,26 @@ from rest_framework.response import Response
 from rest_framework import status
 
 
+def log_activity(user, action, description, target_type=None, target_id=None, metadata=None):
+    """
+    Safely create an activity log entry. Never raises - if logging
+    fails, we don't want it to break the actual user request.
+    """
+    try:
+        from apps.common.models import ActivityLog
+        ActivityLog.objects.create(
+            user=user,
+            action=action,
+            description=description,
+            target_type=target_type,
+            target_id=target_id,
+            metadata=metadata,
+        )
+    except Exception:
+        # Swallow: logging must never break a user-facing action.
+        pass
+
+
 def success_response(data=None, message='Success', status_code=status.HTTP_200_OK):
     """
     Create a standardized success response.

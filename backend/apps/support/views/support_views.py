@@ -46,7 +46,7 @@ class SupportTicketViewSet(viewsets.ModelViewSet):
         queryset = SupportTicket.objects.select_related('user').prefetch_related('replies')
         
         # Admin sees all, employee sees only their own
-        if user.role != 'admin':
+        if user.role not in ('admin', 'superadmin'):
             queryset = queryset.filter(user=user)
         
         # Filters
@@ -65,6 +65,13 @@ class SupportTicketViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         ticket = serializer.save()
         
+        from apps.common.utils import log_activity
+        log_activity(
+            user=request.user, action='ticket_created',
+            description=f'Created support ticket "{ticket.subject}"',
+            target_type='ticket', target_id=ticket.id,
+        )
+        
         response_serializer = SupportTicketDetailSerializer(ticket)
         return Response({
             'message': 'Ticket created successfully',
@@ -75,7 +82,7 @@ class SupportTicketViewSet(viewsets.ModelViewSet):
         instance = self.get_object()
         
         # Only owner or admin can delete
-        if instance.user != request.user and request.user.role != 'admin':
+        if instance.user != request.user and request.user.role not in ('admin', 'superadmin'):
             return Response({
                 'message': 'Permission denied'
             }, status=status.HTTP_403_FORBIDDEN)
@@ -86,7 +93,7 @@ class SupportTicketViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['patch'], url_path='status')
     def update_status(self, request, pk=None):
         """Update ticket status (admin only)."""
-        if request.user.role != 'admin':
+        if request.user.role not in ('admin', 'superadmin'):
             return Response({
                 'message': 'Only admin can update ticket status'
             }, status=status.HTTP_403_FORBIDDEN)
@@ -107,7 +114,7 @@ class SupportTicketViewSet(viewsets.ModelViewSet):
         ticket = self.get_object()
         
         # Check permission - owner or admin can reply
-        if ticket.user != request.user and request.user.role != 'admin':
+        if ticket.user != request.user and request.user.role not in ('admin', 'superadmin'):
             return Response({
                 'message': 'Permission denied'
             }, status=status.HTTP_403_FORBIDDEN)
@@ -119,6 +126,13 @@ class SupportTicketViewSet(viewsets.ModelViewSet):
             ticket=ticket,
             user=request.user,
             message=serializer.validated_data['message']
+        )
+        
+        from apps.common.utils import log_activity
+        log_activity(
+            user=request.user, action='ticket_replied',
+            description=f'Replied to ticket "{ticket.subject}"',
+            target_type='ticket', target_id=ticket.id,
         )
         
         return Response({
@@ -139,7 +153,7 @@ class SupportTicketViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='stats')
     def stats(self, request):
         """Get ticket statistics (admin only)."""
-        if request.user.role != 'admin':
+        if request.user.role not in ('admin', 'superadmin'):
             queryset = SupportTicket.objects.filter(user=request.user)
         else:
             queryset = SupportTicket.objects.all()

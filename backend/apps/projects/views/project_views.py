@@ -49,7 +49,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         user = self.request.user
         
         # Admin sees all projects
-        if user.role == 'admin':
+        if user.role in ('admin', 'superadmin'):
             queryset = Project.objects.all()
         else:
             # Employee sees only projects they're a member of
@@ -64,7 +64,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
     
     def create(self, request, *args, **kwargs):
         # Only admin can create projects
-        if request.user.role != 'admin':
+        if request.user.role not in ('admin', 'superadmin'):
             return Response({
                 'message': 'Only admin can create projects'
             }, status=status.HTTP_403_FORBIDDEN)
@@ -72,6 +72,13 @@ class ProjectViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         project = serializer.save()
+        
+        from apps.common.utils import log_activity
+        log_activity(
+            user=request.user, action='project_created',
+            description=f'Created project "{project.name}"',
+            target_type='project', target_id=project.id,
+        )
         
         response_serializer = ProjectDetailSerializer(project)
         return Response({
@@ -81,7 +88,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
     
     def update(self, request, *args, **kwargs):
         # Only admin can update projects
-        if request.user.role != 'admin':
+        if request.user.role not in ('admin', 'superadmin'):
             return Response({
                 'message': 'Only admin can update projects'
             }, status=status.HTTP_403_FORBIDDEN)
@@ -91,6 +98,13 @@ class ProjectViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         project = serializer.save()
         
+        from apps.common.utils import log_activity
+        log_activity(
+            user=request.user, action='project_updated',
+            description=f'Updated project "{project.name}"',
+            target_type='project', target_id=project.id,
+        )
+        
         response_serializer = ProjectDetailSerializer(project)
         return Response({
             'message': 'Project updated successfully',
@@ -99,7 +113,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
     
     def destroy(self, request, *args, **kwargs):
         # Only admin can delete projects
-        if request.user.role != 'admin':
+        if request.user.role not in ('admin', 'superadmin'):
             return Response({
                 'message': 'Only admin can delete projects'
             }, status=status.HTTP_403_FORBIDDEN)
@@ -115,7 +129,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='members')
     def members(self, request, pk=None):
         """Add/remove/set project members (Admin only)."""
-        if request.user.role != 'admin':
+        if request.user.role not in ('admin', 'superadmin'):
             return Response({
                 'message': 'Only admin can manage project members'
             }, status=status.HTTP_403_FORBIDDEN)
@@ -161,7 +175,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         project = self.get_object()
         
         # Check permission
-        if request.user.role != 'admin' and request.user not in project.members.all():
+        if request.user.role not in ('admin', 'superadmin') and request.user not in project.members.all():
             return Response({
                 'message': 'You are not a member of this project'
             }, status=status.HTTP_403_FORBIDDEN)
@@ -171,7 +185,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         tasks = project.tasks.all()
         
         # Employee sees only their assigned tasks
-        if request.user.role != 'admin':
+        if request.user.role not in ('admin', 'superadmin'):
             tasks = tasks.filter(assigned_to=request.user)
         
         serializer = TaskListSerializer(tasks, many=True, context={'request': request})
@@ -183,7 +197,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='stats')
     def stats(self, request):
         """Get project statistics."""
-        if request.user.role == 'admin':
+        if request.user.role in ('admin', 'superadmin'):
             projects = Project.objects.all()
         else:
             projects = Project.objects.filter(members=request.user)
